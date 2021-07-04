@@ -38,7 +38,7 @@ to format reads accordingly.
 
 A sample set of reads is provided in the `example/` folder. Run
 
-`target/release/hifimap reads-0.00.fa.gz reference.fr`
+`target/release/hifimap reads-0.00.fa.gz reference.fa`
 
 
 ## Parameters
