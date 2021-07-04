@@ -1,9 +1,9 @@
 [package]
-name = "rust-mdbg"
+name = "hifimap"
 version = "0.1.0"
-authors = ["ekimb, rayan"]
+authors = ["ekimb, rayan, ksahlin"]
 edition = "2018"
-default-run = "rust-mdbg"
+default-run = "hifimap"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

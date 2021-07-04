@@ -8,9 +8,9 @@ use std::fs::File;
 use super::Kmer;
 use super::RacyBloom;
 use super::revcomp_aware;
-use super::ec_reads;
+//use super::ec_reads;
 use super::utils;
-use super::poa;
+//use super::poa;
 use std::io::BufWriter;
 use std::path::PathBuf;
 use std::error::Error;
@@ -63,7 +63,7 @@ impl Read {
         for (i, mut hash) in iter {
             let lmer = &inp_seq[i..i+l];
             if lmer.contains('N') {continue;}
-            if params.error_correct || params.has_lmer_counts {
+            if params.has_lmer_counts {
                 let res = minimizer_to_int.get(lmer); // allows to take the 'skip' array into account
                 if !res.is_some() {continue;} // possible discrepancy between what's calculated in minimizers_preparation() and here
                 hash = *res.unwrap();
@@ -96,7 +96,7 @@ impl Read {
         for (i, hash) in iter {
             let lmer = &inp_seq[i..i+l];
             let mut hash : u64 = hash;
-            if params.error_correct || params.has_lmer_counts {
+            if params.has_lmer_counts {
                 let res = minimizer_to_int.get(lmer); // allows to take the 'skip' array into account
                 if ! res.is_some() {continue;} // possible discrepancy between what's calculated in minimizers_preparation() and here
                 hash = *res.unwrap();
@@ -152,7 +152,7 @@ impl Read {
         for (i,hash) in iter {
             let lmer = &inp_seq[i..i+l];
             let mut hash :u64 = hash;
-            if params.error_correct || params.has_lmer_counts {
+            if params.has_lmer_counts {
                 let res = minimizer_to_int.get(lmer); // allows to take the 'skip' array into account
                 if !res.is_some() {continue;} // possible discrepancy between what's calculated in minimizers_preparation() and here
                 hash = *res.unwrap();
@@ -168,7 +168,7 @@ impl Read {
         corrected_map.insert(self.id.to_string(), (read_seq, read_minimizers, read_minimizers_pos, read_transformed));
     }
 
-    pub fn read_to_kmers(&mut self, params: &Params) -> Vec<(Kmer, String, bool, String, (usize, usize))> {
+    /*pub fn read_to_kmers(&mut self, params: &Params) -> Vec<(Kmer, String, bool, String, (usize, usize))> {
         let k = params.k;
         let l = params.l;
         let n = params.n;
@@ -225,8 +225,8 @@ impl Read {
             output.push((node, seq, seq_reversed, origin, shift));
         }
         output
-    }
-    pub fn poa_correct(&mut self, int_to_minimizer: &HashMap<u64, String>, poa_map: &mut HashMap<String, Vec<String>>, buckets: &Buckets, params : &Params, mut corrected_map: &mut HashMap<String, (String, Vec<String>, Vec<usize>, Vec<u64>)>, reads_by_id: &HashMap<String, Read>) {
+    }*/
+    /*pub fn poa_correct(&mut self, int_to_minimizer: &HashMap<u64, String>, poa_map: &mut HashMap<String, Vec<String>>, buckets: &Buckets, params : &Params, mut corrected_map: &mut HashMap<String, (String, Vec<String>, Vec<usize>, Vec<u64>)>, reads_by_id: &HashMap<String, Read>) {
 
 	// poa alignment scoring parameters
 	let score = |a: u64, b: u64| if a == b {1i32} else {-1i32};
@@ -372,5 +372,5 @@ impl Read {
         self.minimizers_pos = consensus_pos;
         self.transformed = consensus;
         self.corrected = true;
-    }
+    }*/
 }

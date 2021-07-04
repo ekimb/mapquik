@@ -22,7 +22,7 @@ const lmer_frequency_based : bool = false;
 
 // Computes the distance between two reads which are already in minimizer-space.
 
-pub fn dist(temp: &Read, other: &Read, params: &Params) -> f64 {
+/*pub fn dist(temp: &Read, other: &Read, params: &Params) -> f64 {
     let s1_set: HashSet<_> = HashSet::from_iter(temp.transformed.iter());
     let s2_set: HashSet<_> = HashSet::from_iter(other.transformed.iter());
     let inter: HashSet<_> = s1_set.intersection(&s2_set).collect();
@@ -50,7 +50,7 @@ pub fn normalize_minimizer(lmer: &str) -> String {
         if rev < res {res = rev.clone();}
     }
     res
-}
+}*/
 
 // https://stackoverflow.com/questions/44139493/in-rust-what-is-the-proper-way-to-replicate-pythons-repeat-parameter-in-iter
 pub fn minimizers_preparation(mut params: &mut Params, filename: &PathBuf, file_size: u64, lmer_counts: &HashMap<String, u32>) -> (HashMap<String, u64>, HashMap<u64, String>) {
