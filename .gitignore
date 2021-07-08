@@ -19,6 +19,8 @@ ref/
 perf*
 runs
 *.paf
+*.maf
+*.ref
 Cargo.lock
 src/graph.py
 compute_err.py

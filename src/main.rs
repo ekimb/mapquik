@@ -59,9 +59,9 @@ const revcomp_aware : bool = true; // shouldn't be set to false except for stran
 type Kmer = kmer_vec::KmerVec;
 type Overlap = kmer_vec::KmerVec;
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
-pub struct HashEntry {origin: String, seqlen: u32, shift: (u16, u16), seq_rev: bool}
+pub struct HashEntry {origin: String, seq: String, seqlen: u32, shift: (usize, usize), seq_rev: bool}
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
-pub struct QueryMatch {kminmer: Kmer, target: Vec<HashEntry>, query: HashEntry, unique: bool}
+pub struct QueryMatch {kminmer: Kmer, target: Vec<HashEntry>, query: HashEntry}
 struct SeqFileType(WriteCompressor<File>);
 unsafe impl Sync for SeqFileType {} // same trick as below. we won't share files among threads but Rust can't know that.
 impl SeqFileType {
@@ -471,6 +471,9 @@ fn main() {
     // dbg_nodes is a hash table containing (kmers -> (index,count))
     // it will keep only those with count > 1
     let mut kmer_table     : Arc<DashMap<Kmer, Vec<HashEntry>>> = Arc::new(DashMap::new()); // it's a Counter
+    let mut ref_abundance_table     : Arc<DashMap<Kmer, usize>> = Arc::new(DashMap::new()); // it's a Counter
+    let mut query_abundance_table     : Arc<DashMap<Kmer, usize>> = Arc::new(DashMap::new()); // it's a Counter
+
     let mut query_matches     : Arc<DashMap<String, Vec<QueryMatch>>> = Arc::new(DashMap::new()); // it's a Counter
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
@@ -507,29 +510,36 @@ fn main() {
 
     let mut add_ref_kminmer = |ref_kminmer: Kmer, seq: Option<&str>, seq_reversed: &bool, origin: &str, shift: &(usize, usize), sequences_file: &mut SeqFileType, thread_id: usize, read_seq: Option<&str>, read_offsets: Option<(usize, usize, usize)>|
     {
-        let lowprec_shift = (shift.0 as u16, shift.1 as u16);
-        let seqlen = match seq {Some(x) => x.len() as u32, None => read_offsets.unwrap().2 as u32};
-        let seq = match seq {Some(x) => x, None => &read_seq.unwrap()[read_offsets.unwrap().0..read_offsets.unwrap().1]};
-        let seq = if *seq_reversed {utils::revcomp(&seq)} else {seq.to_string()};
+        //println!("Seq: {:?}, read_seq: {:?}", seq, read_seq);
+        let seq = if *seq_reversed {utils::revcomp(&seq.unwrap())} else {seq.unwrap().to_string()};
+        let seqlen = read_seq.unwrap().len() as u32;
         let seq_line = format!("{}\t{}\t{}\t{}\t{:?}", ref_kminmer.print_as_string(), seq, "*", origin, shift);
         seq_write(sequences_file, format!("{}\n", seq_line));
         let mut contains_key = kmer_table.contains_key(&ref_kminmer);
         if contains_key {
             let mut entry_vec = kmer_table.get_mut(&ref_kminmer).unwrap();
-            entry_vec.push(HashEntry{origin: origin.to_string(), seqlen: seqlen, shift: lowprec_shift, seq_rev: *seq_reversed}); 
+            entry_vec.push(HashEntry{origin: origin.to_string(), seq: seq, seqlen: seqlen, shift: *shift, seq_rev: *seq_reversed}); 
         }
         else {
             let mut entry_vec = Vec::<HashEntry>::new();
-            entry_vec.push(HashEntry{origin: origin.to_string(), seqlen: seqlen, shift: lowprec_shift, seq_rev: *seq_reversed});
-            kmer_table.insert(ref_kminmer, entry_vec);
+            entry_vec.push(HashEntry{origin: origin.to_string(), seq: seq, seqlen: seqlen, shift: *shift, seq_rev: *seq_reversed});
+            kmer_table.insert(ref_kminmer.clone(), entry_vec);
         }
+        let mut contains_abund = ref_abundance_table.contains_key(&ref_kminmer);
+        if contains_abund {*ref_abundance_table.get_mut(&ref_kminmer).unwrap() += 1;}
+        else {ref_abundance_table.insert(ref_kminmer.clone(), 1);}
     };
 
     // worker thread
     let ref_process_read_aux = |ref_str: &[u8], ref_id: &str| -> Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Read)> {
         let thread_id :usize =  thread_id::get();
         let mut output : Vec<(Kmer, String, bool, String, (usize, usize))> = Vec::new();
-        let seq = std::str::from_utf8(ref_str).unwrap().replace("\n", "").replace("\r", "");
+        let seq = std::str::from_utf8(ref_str).unwrap(); // see https://docs.rs/seq_io/0.4.0-alpha.0/seq_io/fasta/index.html
+            // those two next lines do a string copy of the read sequence, because in the case of a
+            // reference, we'll need to remove newlines. also, that sequence will be moved to the
+            // Read object. could be optimized later
+            let seq_for_ref = seq.replace("\n", "").replace("\r", "");
+            let seq = seq_for_ref; 
         let mut ref_obj = Read::extract(&ref_id, seq, &params, &minimizer_to_int, &int_to_minimizer, &uhs_bloom, &lcp_bloom);
         if sequences_files.get(&thread_id).is_none() {
             sequences_files.insert(thread_id, create_sequences_file(thread_id));
@@ -538,26 +548,31 @@ fn main() {
         if ref_obj.transformed.len() > k {
             for i in 0..(ref_obj.transformed.len() - k + 1) {
                 let mut ref_kminmer : Kmer = Kmer::make_from(&ref_obj.transformed[i..i+k]);
+                // uncomment the line below to track where the kmer is coming from (but not needed in production)
+                //let origin = "*".to_string(); 
                 let mut seq_reversed = false;
                 if revcomp_aware { 
                     let (ref_kminmer_norm, reversed) = ref_kminmer.normalize(); 
                     ref_kminmer = ref_kminmer_norm;
                     seq_reversed = reversed;
                 } 
-                // uncomment the line below to track where the kmer is coming from (but not needed in production)
-                //let origin = "*".to_string(); 
                 let minimizers_pos = &ref_obj.minimizers_pos;
-                let position_of_second_minimizer = match seq_reversed {
-                    true => minimizers_pos[i+k-1] - minimizers_pos[i+k-2],
-                    false => minimizers_pos[i+1] - minimizers_pos[i]
+                let position_of_first_minimizer = match seq_reversed {
+                    true => minimizers_pos[i+k-1] + params.l - 1,
+                    false => minimizers_pos[i]
                 };
-                let position_of_second_to_last_minimizer = match seq_reversed {
-                    true => minimizers_pos[i+1] - minimizers_pos[i],
-                    false => minimizers_pos[i+k-1] - minimizers_pos[i+k-2]
+                let position_of_last_minimizer = match seq_reversed {
+                    true => minimizers_pos[i] + params.l - 1,
+                    false => minimizers_pos[i+k-1]
                 };
-                let shift = (position_of_second_minimizer, position_of_second_to_last_minimizer);
-                let ref_offsets = (ref_obj.minimizers_pos[i] as usize, (ref_obj.minimizers_pos[i+k-1] as usize + l), (ref_obj.minimizers_pos[i+k-1] + 1 - ref_obj.minimizers_pos[i] + 1));
-                add_ref_kminmer(ref_kminmer, None, &seq_reversed, &ref_id, &shift, &mut sequences_file, thread_id, Some(&ref_obj.seq), Some(ref_offsets));
+                let mut shift = (minimizers_pos[i], minimizers_pos[i+k-1] + params.l - 1);
+                let ref_offsets = (ref_obj.minimizers_pos[i] as usize, (ref_obj.minimizers_pos[i+k-1] as usize + l - 1), (ref_obj.minimizers_pos[i+k-1] + l - ref_obj.minimizers_pos[i]));
+                //println!("Shift: {:?}", shift);
+                let mut span_seq = &ref_obj.seq[shift.0..shift.1 + 1];
+               // println!("Span_seq: {:?}, len: {:?}", span_seq, span_seq.len());
+                //start of kminmer : pos[i]
+                //end of kminmer : pos [i+k-1]+l
+                add_ref_kminmer(ref_kminmer, Some(span_seq), &seq_reversed, &ref_id, &shift, &mut sequences_file, thread_id, Some(&ref_obj.seq), Some(ref_offsets));
             }
         }
         Some((output, ref_obj))
@@ -609,23 +624,17 @@ fn main() {
 
     let mut query_kminmer_lookup =|inp_kminmer: Kmer, seq: Option<&str>, seq_reversed: &bool, origin: &str, shift: &(usize, usize), sequences_file: &mut SeqFileType, thread_id: usize, read_seq: Option<&str>, read_offsets: Option<(usize, usize, usize)>| -> Option<QueryMatch>
     {
-        let mut match_unique = false;
-        let lowprec_shift = (shift.0 as u16, shift.1 as u16);
-        let seqlen = match seq {Some(x) => x.len() as u32, None => read_offsets.unwrap().2 as u32};
+        let mut contains_abund = query_abundance_table.contains_key(&inp_kminmer);
+        if contains_abund {*query_abundance_table.get_mut(&inp_kminmer).unwrap() += 1;}
+        else {query_abundance_table.insert(inp_kminmer.clone(), 1);}
+        let seq = if *seq_reversed {utils::revcomp(&seq.unwrap())} else {seq.unwrap().to_string()};
+        let seqlen = read_seq.unwrap().len() as u32;
         let mut contains_key = kmer_table.contains_key(&inp_kminmer);
         if contains_key {
             let entry_vec = kmer_table.get_mut(&inp_kminmer).unwrap();
-            if entry_vec.len() == 1 {
-                match_unique = true;
-            }
-            else if entry_vec.len() >= 1 {
-                match_unique = false;
-            }
-            let seq = match seq {Some(x) => x, None => &read_seq.unwrap()[read_offsets.unwrap().0..read_offsets.unwrap().1]};
-            let seq = if *seq_reversed {utils::revcomp(&seq)} else {seq.to_string()};
             let seq_line = format!("{}\t{}\t{}\t{}\t{:?}", inp_kminmer.print_as_string(), seq, "*", origin, shift);
             seq_write(sequences_file, format!("{}\n", seq_line));
-            return Some(QueryMatch{kminmer: inp_kminmer, target: entry_vec.to_vec(), query: HashEntry{origin: origin.to_string(), seqlen: seqlen, shift: lowprec_shift, seq_rev: *seq_reversed}, unique: match_unique});
+            return Some(QueryMatch{kminmer: inp_kminmer, target: entry_vec.to_vec(), query: HashEntry{origin: origin.to_string(), seq: seq, seqlen: seqlen, shift: *shift, seq_rev: *seq_reversed}});
         }
         else {return None};
     };
@@ -652,19 +661,23 @@ fn main() {
                     kminmer = kminmer_norm;
                     seq_reversed = reversed;
                 } 
-                //let origin = "*".to_string(); // uncomment the line below to track where the kmer is coming from (but not needed in production)
                 let minimizers_pos = &read_obj.minimizers_pos;
-                let position_of_second_minimizer = match seq_reversed {
-                    true => minimizers_pos[i+k-1] - minimizers_pos[i+k-2],
-                    false => minimizers_pos[i+1] - minimizers_pos[i]
+                let position_of_first_minimizer = match seq_reversed {
+                    true => minimizers_pos[i+k-1] + params.l - 1,
+                    false => minimizers_pos[i]
                 };
-                let position_of_second_to_last_minimizer = match seq_reversed {
-                    true => minimizers_pos[i+1] - minimizers_pos[i],
-                    false => minimizers_pos[i+k-1] - minimizers_pos[i+k-2]
+                let position_of_last_minimizer = match seq_reversed {
+                    true => minimizers_pos[i] + params.l - 1,
+                    false => minimizers_pos[i+k-1]
                 };
-                let shift = (position_of_second_minimizer, position_of_second_to_last_minimizer);
-                let read_offsets = (read_obj.minimizers_pos[i] as usize, (read_obj.minimizers_pos[i+k-1] as usize + l), (read_obj.minimizers_pos[i+k-1] + 1 - read_obj.minimizers_pos[i] + 1));
-                let lookup = query_kminmer_lookup(kminmer, Some(&seq), &seq_reversed, &seq_id, &shift, &mut sequences_file, thread_id, None, None);
+                let mut shift = (minimizers_pos[i], minimizers_pos[i+k-1] + params.l - 1);
+                let read_offsets = (read_obj.minimizers_pos[i] as usize, (read_obj.minimizers_pos[i+k-1] as usize + l - 1), (read_obj.minimizers_pos[i+k-1] + l - read_obj.minimizers_pos[i]));
+                //println!("Shift: {:?}", shift);
+                let mut span_seq = &read_obj.seq[shift.0..shift.1 + 1];
+                //println!("Span_seq: {:?}, len: {:?}", span_seq, span_seq.len());
+                //start of kminmer : pos[i]
+                //end of kminmer : pos [i+k-1]+l
+                let lookup = query_kminmer_lookup(kminmer, Some(span_seq), &seq_reversed, &seq_id, &shift, &mut sequences_file, thread_id, Some(&read_obj.seq), None);
                 match lookup {
                     Some(x) => lookups.push(x),
                     None => continue
@@ -697,7 +710,7 @@ fn main() {
             let (query_lookups, read_obj) = found.as_ref().unwrap();
             if debug_only_display_matches {
                 for qmatch in query_lookups.iter() {
-                    println!("K-min-mer {:?}, target(s) {:?}, query {:?}, unique: {:?}", qmatch.kminmer.print_as_string(), qmatch.target, qmatch.query, qmatch.unique);
+                    println!("K-min-mer {:?}, target(s) {:?}, query {:?}", qmatch.kminmer.print_as_string(), qmatch.target, qmatch.query);
                 } // kminmer: Kmer, target: Vec<HashEntry>, query: HashEntry, unique: bool};
             }
             query_matches.insert(read_obj.id.to_string(), query_lookups.to_vec());
@@ -720,7 +733,6 @@ fn main() {
     }
 
     pb.finish_print("Finished lookup.");
-    println!("Number of reads: {}", nb_reads);
 
     for mut sequences_file in sequences_files.iter_mut() {sequences_file.flush().unwrap();}
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
@@ -729,16 +741,32 @@ fn main() {
         Ok(file) => file,
     };
     let query_matches_view = Arc::try_unwrap(query_matches).unwrap().into_read_only();
+    let mut match_count = 0;
     for (id, entry) in query_matches_view.iter() {
         for qmatch in entry.iter() {
-            if qmatch.target.len() > 1 {continue;}
+            let mut query_abund = *query_abundance_table.get(&qmatch.kminmer).unwrap();
+            let mut ref_abund = *ref_abundance_table.get(&qmatch.kminmer).unwrap();
+            //if query_abund == 1 {continue;}
+            if query_abund == 1 || ref_abund > 1 {continue;}
             let query = &qmatch.query;
-            let target = &qmatch.target[0];
+            let mut target = &qmatch.target[0];
+            let mut query_span = query.shift.1 - query.shift.0;
+            let mut target_span = target.shift.1 - target.shift.0;
             let ori = paf_output::determine_orientation(query, target);
-            let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query.origin, query.seqlen, query.shift.0, query.shift.1, ori, target.origin, target.seqlen, target.shift.0, target.shift.1, "*", "*", "255");
+            let mut block_len = target_span;
+            println!("Query origin: {}\tTarget origin: {}\tQuery abundance: {:?}\tTarget abundance: {:?}\tQuery span: {}\tTarget span: {}", query.origin, target.origin, query_abund, ref_abund, query_span, target_span);
+            let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query.origin, query.seqlen, query.shift.0, query.shift.1, ori, target.origin, target.seqlen, target.shift.0, target.shift.1, block_len, block_len, "255");
             write!(file, "{}", paf_line).expect("Error writing line.");
+            match_count += 1;
+            //target = &qmatch.target[1];}
+            //let ori = paf_output::determine_orientation(query, target);
+            //let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query.origin, query.seqlen, query.shift.0, query.shift.1, ori, target.origin, target.seqlen, target.shift.0, target.shift.1, residue_match, block_len, "255");
+            //let (cigar, block_len, residue_match) = paf_output::align(query, target);
+            //let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tcg:Z:{}\n", query.origin, query.seqlen, query.shift.0, query.shift.1, ori, target.origin, target.seqlen, target.shift.0, target.shift.1, residue_match, block_len, "255", cigar);
         }
     }
+    println!("Number of reads: {}", nb_reads);
+    println!("Found {} matches.", match_count);
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
     println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);
