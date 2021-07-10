@@ -4,7 +4,10 @@ use nthash::{ntc64,NtHashIterator};
 use std::collections::{HashMap,HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::VecDeque;
+use std::iter::FromIterator;
 use std::fs::File;
+use std::cmp::max;
+use std::cmp::min;
 use super::Kmer;
 use super::RacyBloom;
 use super::revcomp_aware;
@@ -18,6 +21,127 @@ use std::io::Write;
 use super::utils::pretty_minvec;
 use super::utils::median;
 type Buckets<'a> = HashMap<Vec<u64>, Vec<String>>;
+#[derive(Clone, Default)]
+pub struct ReadSync {
+    pub id: String,
+    pub minimizers : Vec<String>,
+    pub minimizers_pos: Vec<(usize, usize)>,
+    pub transformed: Vec<u64>,
+    pub seq: String, 
+    //pub seq_str: &'a str, // an attempt to avoid copying the string sequence returned by the fasta parser (seems too much effort to implement for now)
+    pub corrected: bool
+}
+impl ReadSync {
+    pub fn extract(inp_id: &str, inp_seq: String, params: &Params, minimizer_to_int: &HashMap<String, u64>, int_to_minimizer: &HashMap<u64, String>, uhs_bloom: &RacyBloom, lcp_bloom: &RacyBloom) -> Self {
+        return ReadSync::extract_syncmer(inp_id, inp_seq, params, minimizer_to_int);
+    }
+    pub fn randstrobe_order_2(syncmers_collected: &Vec<(usize, u64)>, start: usize, stop: usize, hash_m1: u64, prime: u64) -> (usize, u64) {
+        let mut min_index = start;
+        let mut min_value = u64::max_value();
+        for i in start..stop {
+            let mut value = (hash_m1 + syncmers_collected[i].1) % prime;
+            if value < min_value {
+                min_index = i;
+                min_value = value;
+            }
+        }
+        let min_hash_val = hash_m1 - syncmers_collected[min_index].1;
+        (min_index, min_hash_val)
+    }     
+    pub fn seq_to_randstrobes2_iter(mut syncmers_collected: Vec<(usize, u64)>, l: usize, strobe_w_min_offset: usize, strobe_w_max_offset: usize, prime: u64) -> (Vec<u64>, Vec<(usize, usize)>) {
+        let mut strobemer_hashes = Vec::<u64>::new();
+        let mut strobemer_pos = Vec::<(usize, usize)>::new();
+        let mut window_p_end = 0;
+        let mut window_p_start = 0;
+        for i in 0..syncmers_collected.len() {
+            let strobe1_pos = syncmers_collected[i].0;
+            let strobe1_hash = syncmers_collected[i].1;
+            if i >= syncmers_collected.len() - l {break;}
+            if i + strobe_w_max_offset <= syncmers_collected.len() {
+                window_p_start = i + strobe_w_min_offset;
+            }
+            else {
+                window_p_start = max(((i + strobe_w_min_offset)-(i + strobe_w_max_offset - syncmers_collected.len())), i);
+            }
+            window_p_end = min(i + strobe_w_max_offset, syncmers_collected.len());
+            //println!("window_p_start:{}\twindow_p_end:{}", window_p_start, window_p_end);
+            let (min_index, strobe_hash) = ReadSync::randstrobe_order_2(&syncmers_collected, window_p_start, window_p_end, strobe1_hash, prime);
+            let strobe2_pos = syncmers_collected[min_index].0;
+            //println!("s1p:{}\ts2p:{}\tshash:{}", strobe1_pos, strobe2_pos, strobe_hash);
+            strobemer_hashes.push(strobe_hash);
+            strobemer_pos.push((strobe1_pos, strobe2_pos));
+        }
+        return (strobemer_hashes, strobemer_pos)
+            
+    }
+    pub fn extract_syncmer(inp_id: &str, mut inp_seq_raw: String, params: &Params, minimizer_to_int: &HashMap<String, u64>) -> Self {
+        let size_miniverse = params.size_miniverse as u64;
+        let density = params.density;
+        let l = params.l;
+        let s = params.syncmer;
+        let t = ((l-s+1) as f64/2.0).ceil() as usize;
+        let strobe_w_min_offset = (l / (l - s + 1)) + 2;
+        let strobe_w_max_offset = (l / (l - s + 1)) + 10;
+        let mut chunk_size = 1;
+        let mut syncmer_count = 0;
+        let mut read_minimizers_pos = Vec::<(usize, usize)>::new();
+        let mut read_minimizers = Vec::<String>::new();
+        let mut read_transformed = Vec::<u64>::new();
+        //println!("parsing new read: {}\n",inp_seq);
+        let hash_bound = ((density as f64) * (u64::max_value() as f64)) as u64;
+        let mut tup = (String::new(), Vec::<usize>::new());
+        let mut inp_seq = String::new();
+        if !params.use_hpc {
+            tup = Read::encode_rle(&inp_seq_raw); //get HPC sequence and positions in the raw nonHPCd sequence
+            inp_seq = tup.0.clone(); //assign new HPCd sequence as input
+        }
+        else {
+            inp_seq = inp_seq_raw.clone(); //already HPCd before so get the raw sequence
+        }
+        if inp_seq.len() < l {
+            return ReadSync {id: inp_id.to_string(), minimizers: read_minimizers, minimizers_pos: read_minimizers_pos, transformed: read_transformed, seq: inp_seq_raw, corrected: false};
+        }
+        let iter_l = NtHashIterator::new(inp_seq.as_bytes(), l).unwrap().enumerate();
+        let mut syncmers_collected = Vec::<(usize, u64)>::new();
+        for (i,hash_l) in iter_l {
+            let lmer = &inp_seq[i..i+l];
+            let min_smer = NtHashIterator::new(lmer.as_bytes(), s).unwrap().enumerate().min_by(|x, y| x.1.cmp(&y.1)).unwrap();
+            if min_smer.0 == t {
+                syncmers_collected.push((i, hash_l));
+            }            
+        }
+        let (strobemer_hashes, strobemer_pos) = ReadSync::seq_to_randstrobes2_iter(syncmers_collected, l, strobe_w_min_offset, strobe_w_max_offset, 997);
+        
+        strobemer_hashes.iter().for_each(|x| read_transformed.push(*x));
+        if !params.use_hpc {strobemer_pos.iter().for_each(|x| read_minimizers_pos.push((tup.1[x.0], tup.1[x.1])))} //if not HPCd need raw sequence positions
+        else {strobemer_pos.iter().for_each(|x| read_minimizers_pos.push(*x));}
+        strobemer_pos.iter().for_each(|x| read_minimizers.push(inp_seq[x.0..x.0+l].to_string()));
+        //tried partitioning seq below
+        /*let inp_seq_chunks = inp_seq.as_bytes().chunks(chunk_size).collect::<Vec<&[u8]>>();
+        let mut chunk_count = 0;
+        for chunk in inp_seq_chunks {
+            if chunk.len() < l {continue;}
+            let iter_l = NtHashIterator::new(chunk, l).unwrap().enumerate();
+            for (i,hash_l) in iter_l {
+                let mut seq_pos = i + (chunk_count * chunk_size);
+                let lmer = &inp_seq[seq_pos..seq_pos+l];
+                let min_smer = NtHashIterator::new(lmer.as_bytes(), s).unwrap().enumerate().min_by(|x, y| x.1.cmp(&y.1)).unwrap();
+                if min_smer.0 == t {
+                    //println!("Lmer: {}\tpos:{}\tmin_smer:{}\tpos:{}\tt:{}", lmer, i, min_smer.1, min_smer.0, t);
+                    if !params.use_hpc {read_minimizers_pos.push(tup.1[seq_pos]);} //if not HPCd need raw sequence positions
+                    else {read_minimizers_pos.push(seq_pos);} //already HPCd so positions are the same
+                    read_transformed.push(hash_l);
+                    //println!("Selected pos {} in chunk {}, seq_pos {}", i, chunk_count, seq_pos);
+                    //break;
+                }            
+            }
+            chunk_count += 1;
+
+        }*/
+        ReadSync {id: inp_id.to_string(), minimizers: read_minimizers, minimizers_pos: read_minimizers_pos, transformed: read_transformed, seq: inp_seq_raw, corrected: false}
+    
+    }
+}
 #[derive(Clone, Default)]
 pub struct Read {
     pub id: String,
@@ -163,6 +287,33 @@ impl Read {
         }
         Read {id: inp_id.to_string(), minimizers: read_minimizers, minimizers_pos: read_minimizers_pos, transformed: read_transformed, seq: inp_seq_raw, corrected: false}
     }
+
+    /*pub fn thinner(hash_list: &Vec<(usize, u64)>, w: usize) -> Vec<(usize, u64)> {
+
+        let mut window_hashes : VecDeque<u64> = VecDeque::from_iter(hash_list.iter().map(|x| x.1).collect::<Vec<u64>>());
+        let mut thinned_hash_list = Vec::<(usize, u64)>::new();
+        let mut min_hash = window_hashes.iter().enumerate().min_by(|x, y| x.1.cmp(y.1)).unwrap();
+        let mut curr_min_hash = *min_hash.1;
+        let mut min_index = min_hash.0;
+        thinned_hash_list.push((min_hash.0, *min_hash.1));
+        for i in w..hash_list.len() + w - 1 {
+            let mut new_hash : u64 = 0;
+            if i >= hash_list.len() {new_hash = u64::max_value();}
+            else {new_hash = hash_list[i].1;}
+            let mut discarded_hash = window_hashes.pop_back().unwrap();
+            window_hashes.push_front(new_hash);
+            if curr_min_hash == discarded_hash {
+                min_hash = window_hashes.iter().enumerate().min_by(|x, y| x.1.cmp(y.1)).unwrap();
+                thinned_hash_list.push((min_index + i + 1 - w, curr_min_hash));
+            }
+            else if new_hash < curr_min_hash {
+                curr_min_hash = new_hash;
+                thinned_hash_list.push((i, curr_min_hash))    
+            } 
+        }
+        return thinned_hash_list;
+    }*/
+
 
     pub fn label(&self, read_seq: String, read_minimizers: Vec<String>, read_minimizers_pos: Vec<usize>, read_transformed: Vec<u64>, corrected_map: &mut HashMap<String, (String, Vec<String>, Vec<usize>, Vec<u64>)>) {
         corrected_map.insert(self.id.to_string(), (read_seq, read_minimizers, read_minimizers_pos, read_transformed));

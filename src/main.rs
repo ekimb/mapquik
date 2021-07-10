@@ -18,6 +18,7 @@ use closure::closure;
 use std::iter::FromIterator;
 use crate::kmer_vec::get;
 use crate::read::Read;
+use crate::read::ReadSync;
 use std::fs::{File,remove_file};
 use std::collections::HashSet;
 extern crate array_tool;
@@ -103,6 +104,7 @@ pub struct Params {
     lmer_counts_max: u32,
     uhs: bool,
     lcp: bool,
+    syncmer: usize,
     has_lmer_counts: bool,
     use_bf: bool,
     use_hpc: bool,
@@ -279,6 +281,9 @@ struct Opt {
     /// minimizers from a read.
     #[structopt(short, long)]
     density: Option<f64>,
+    /// Syncmer-based selection scheme
+    #[structopt(short, long)]
+    syncmer: Option<usize>,
     /// Reference genome input
     ///
     /// Reference to be indexed and mapped to. 
@@ -341,6 +346,7 @@ fn main() {
     let mut k : usize = 10;
     let mut l : usize = 12;
     let mut w : usize = 0;
+    let mut syncmer : usize = 0;
     let mut density : f64 = 0.10;
     let mut reference : bool = false;
     let mut windowed : bool = false;
@@ -376,7 +382,7 @@ fn main() {
     else {
         if !opt.k.is_none() {k = opt.k.unwrap()} else {println!("Warning: Using default k value ({}).", k);} 
         if !opt.l.is_none() {l = opt.l.unwrap()} else {println!("Warning: Using default l value ({}).", l);}
-        if !opt.density.is_none() {density = opt.density.unwrap()} else {println!("Warning: Using default density value ({}%).", density * 100.0);}
+        if !opt.density.is_none() {density = opt.density.unwrap()} else if opt.syncmer.is_none() {println!("Warning: Using default density value ({}%).", density * 100.0);}
     }
     if !opt.threads.is_none() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
     if opt.bf {use_bf = true;}
@@ -396,6 +402,10 @@ fn main() {
         lcp = true;
         lcp_filename = opt.lcp.unwrap(); 
     } 
+    if !opt.syncmer.is_none() { 
+        syncmer = opt.syncmer.unwrap(); 
+        println!("Syncmer parameter s: {}", syncmer);
+    } 
     if !opt.prefix.is_none() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let debug = opt.debug;
     let size_miniverse = match revcomp_aware {
@@ -412,6 +422,7 @@ fn main() {
         lmer_counts_max,
         uhs,
         lcp,
+        syncmer,
         has_lmer_counts,
         use_bf,
         use_hpc,
@@ -529,9 +540,55 @@ fn main() {
         if contains_abund {*ref_abundance_table.get_mut(&ref_kminmer).unwrap() += 1;}
         else {ref_abundance_table.insert(ref_kminmer.clone(), 1);}
     };
-
+    let ref_process_read_aux_sync = |ref_str: &[u8], ref_id: &str| -> Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Option<Read>, Option<ReadSync>)> {
+        let thread_id :usize =  thread_id::get();
+        let mut output : Vec<(Kmer, String, bool, String, (usize, usize))> = Vec::new();
+        let seq = std::str::from_utf8(ref_str).unwrap(); // see https://docs.rs/seq_io/0.4.0-alpha.0/seq_io/fasta/index.html
+            // those two next lines do a string copy of the read sequence, because in the case of a
+            // reference, we'll need to remove newlines. also, that sequence will be moved to the
+            // Read object. could be optimized later
+        let seq_for_ref = seq.replace("\n", "").replace("\r", "");
+        let seq = seq_for_ref; 
+        let mut ref_obj = ReadSync::extract(&ref_id, seq, &params, &minimizer_to_int, &int_to_minimizer, &uhs_bloom, &lcp_bloom);
+        if sequences_files.get(&thread_id).is_none() {
+            sequences_files.insert(thread_id, create_sequences_file(thread_id));
+        }
+        let mut sequences_file = sequences_files.get_mut(&thread_id).unwrap();
+        if ref_obj.transformed.len() > k {
+            for i in 0..(ref_obj.transformed.len() - k + 1) {
+                let mut ref_kminmer : Kmer = Kmer::make_from(&ref_obj.transformed[i..i+k]);
+                // uncomment the line below to track where the kmer is coming from (but not needed in production)
+                //let origin = "*".to_string(); 
+                let mut seq_reversed = false;
+                if revcomp_aware { 
+                    let (ref_kminmer_norm, reversed) = ref_kminmer.normalize(); 
+                    ref_kminmer = ref_kminmer_norm;
+                    seq_reversed = reversed;
+                } 
+                
+                let minimizers_pos = &ref_obj.minimizers_pos;
+                let position_of_first_minimizer = match seq_reversed {
+                    true => minimizers_pos[i+k-1].1 + params.l - 1,
+                    false => minimizers_pos[i].0
+                };
+                let position_of_last_minimizer = match seq_reversed {
+                    true => minimizers_pos[i].0 + params.l - 1,
+                    false => minimizers_pos[i+k-1].1
+                };
+                let mut shift = (minimizers_pos[i].0, minimizers_pos[i+k-1].1 + params.l - 1);
+                let ref_offsets = (minimizers_pos[i].0 as usize, (minimizers_pos[i+k-1].1 as usize + l - 1), (minimizers_pos[i+k-1].1 + l - minimizers_pos[i].0));
+                //println!("Shift: {:?}", shift);
+                let mut span_seq = &ref_obj.seq[shift.0..shift.1 + 1];
+                //println!("Span_seq: {:?}, len: {:?}", span_seq, span_seq.len());
+                //start of kminmer : pos[i]
+                //end of kminmer : pos [i+k-1]+l
+                add_ref_kminmer(ref_kminmer, Some(span_seq), &seq_reversed, &ref_id, &shift, &mut sequences_file, thread_id, Some(&ref_obj.seq), Some(ref_offsets));
+            }
+        }
+        Some((output, None, Some(ref_obj)))
+    };
     // worker thread
-    let ref_process_read_aux = |ref_str: &[u8], ref_id: &str| -> Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Read)> {
+    let ref_process_read_aux = |ref_str: &[u8], ref_id: &str| -> Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Option<Read>, Option<ReadSync>)> {
         let thread_id :usize =  thread_id::get();
         let mut output : Vec<(Kmer, String, bool, String, (usize, usize))> = Vec::new();
         let seq = std::str::from_utf8(ref_str).unwrap(); // see https://docs.rs/seq_io/0.4.0-alpha.0/seq_io/fasta/index.html
@@ -556,6 +613,7 @@ fn main() {
                     ref_kminmer = ref_kminmer_norm;
                     seq_reversed = reversed;
                 } 
+                
                 let minimizers_pos = &ref_obj.minimizers_pos;
                 let position_of_first_minimizer = match seq_reversed {
                     true => minimizers_pos[i+k-1] + params.l - 1,
@@ -569,37 +627,39 @@ fn main() {
                 let ref_offsets = (ref_obj.minimizers_pos[i] as usize, (ref_obj.minimizers_pos[i+k-1] as usize + l - 1), (ref_obj.minimizers_pos[i+k-1] + l - ref_obj.minimizers_pos[i]));
                 //println!("Shift: {:?}", shift);
                 let mut span_seq = &ref_obj.seq[shift.0..shift.1 + 1];
-               // println!("Span_seq: {:?}, len: {:?}", span_seq, span_seq.len());
+            // println!("Span_seq: {:?}, len: {:?}", span_seq, span_seq.len());
                 //start of kminmer : pos[i]
                 //end of kminmer : pos [i+k-1]+l
                 add_ref_kminmer(ref_kminmer, Some(span_seq), &seq_reversed, &ref_id, &shift, &mut sequences_file, thread_id, Some(&ref_obj.seq), Some(ref_offsets));
             }
         }
-        Some((output, ref_obj))
+        Some((output, Some(ref_obj), None))
     };
-    let ref_process_read_fasta = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Read)>| {
+    let ref_process_read_fasta = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Option<Read>, Option<ReadSync>)>| {
         let ref_str = record.seq(); 
         let ref_id = record.id().unwrap().to_string();
-        *found = ref_process_read_aux(&ref_str, &ref_id);
+        if params.syncmer != 0 {*found = ref_process_read_aux_sync(&ref_str, &ref_id);}
+        else {*found = ref_process_read_aux(&ref_str, &ref_id);}
     };
-    let ref_process_read_fastq = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<(Kmer, String, bool, String, (usize, usize))>,Read)>| {
+    let ref_process_read_fastq = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<(Kmer, String, bool, String, (usize, usize))>,Option<Read>, Option<ReadSync>)>| {
         let ref_str = record.seq(); 
         let ref_id = record.id().unwrap().to_string();
         *found = ref_process_read_aux(&ref_str, &ref_id);
     };
 
     // parallel fasta parsing, with a main thread that writes to disk and populates hash tables
-    let mut ref_main_thread = |found: &Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Read)>| { // runs in main thread
+    let mut ref_main_thread = |found: &Option<(Vec<(Kmer, String, bool, String, (usize, usize))>, Option<Read>, Option<ReadSync>)>| { // runs in main thread
         nb_reads += 1;
         //println!("Received read in main thread, nb kmers: {}", vec.len());
         let debug_only_display_read_and_minimizers = false;
         if debug_only_display_read_and_minimizers {
             // debug: just displays the read id and the list of minimizers
-            let (vec, ref_obj) = found.as_ref().unwrap();
-            println!("{} {}", &ref_obj.id.to_string(), &ref_obj.transformed.to_vec().iter().join(" ")); 
+            let (vec, ref_obj, ref_obj_sync) = found.as_ref().unwrap();
+            if ref_obj.is_some(){println!("{} {}", ref_obj.as_ref().unwrap().id.to_string(), ref_obj.as_ref().unwrap().transformed.to_vec().iter().join(" "));}
+            else {println!("{} {}", ref_obj_sync.as_ref().unwrap().id.to_string(), ref_obj_sync.as_ref().unwrap().transformed.to_vec().iter().join(" "));}
         }
         else {
-            let (vec, ref_obj) = found.as_ref().unwrap();
+            let (vec, ref_obj, ref_obj_sync) = found.as_ref().unwrap();
         }
         // Some(value) will stop the reader, and the value will be returned.
         // In the case of never stopping, we need to give the compiler a hint about the
@@ -639,7 +699,7 @@ fn main() {
         else {return None};
     };
         // worker thread
-    let query_process_read_aux = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<QueryMatch>, Read)> {
+    let query_process_read_aux = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<QueryMatch>, Option<Read>, Option<ReadSync>)> {
         let thread_id :usize =  thread_id::get();
         let mut output : Vec<(Kmer, String, bool, String, (usize, usize))> = Vec::new();
         let seq = std::str::from_utf8(seq_str).unwrap(); // see https://docs.rs/seq_io/0.4.0-alpha.0/seq_io/fasta/index.html
@@ -681,46 +741,99 @@ fn main() {
                 match lookup {
                     Some(x) => lookups.push(x),
                     None => continue
+                }
+            }
+        }
+        if lookups.len() > 0 {
+            return Some((lookups, Some(read_obj), None))
+        }
+        else {return None}
+    };
+    let query_process_read_aux_sync = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<QueryMatch>, Option<Read>, Option<ReadSync>)> {
+        let thread_id :usize =  thread_id::get();
+        let mut output : Vec<(Kmer, String, bool, String, (usize, usize))> = Vec::new();
+        let seq = std::str::from_utf8(seq_str).unwrap(); // see https://docs.rs/seq_io/0.4.0-alpha.0/seq_io/fasta/index.html
+        // those two next lines do a string copy of the read sequence, because in the case of a
+        // reference, we'll need to remove newlines. also, that sequence will be moved to the
+        // Read object. could be optimized later
+        let mut read_obj = ReadSync::extract(&seq_id, seq.to_string(), &params, &minimizer_to_int, &int_to_minimizer, &uhs_bloom, &lcp_bloom);
+        let mut lookups = Vec::<QueryMatch>::new();
+        if sequences_files.get(&thread_id).is_none() {
+            sequences_files.insert(thread_id, create_sequences_file(thread_id));
+        }
+        let mut sequences_file = sequences_files.get_mut(&thread_id).unwrap();
+        if read_obj.transformed.len() > k {
+            for i in 0..(read_obj.transformed.len() - k + 1) {
+                let mut kminmer : Kmer = Kmer::make_from(&read_obj.transformed[i..i+k]);
+                let mut seq_reversed = false;
+                if revcomp_aware { 
+                    let (kminmer_norm, reversed) = kminmer.normalize(); 
+                    kminmer = kminmer_norm;
+                    seq_reversed = reversed;
+                } 
+                let minimizers_pos = &read_obj.minimizers_pos;
+                let position_of_first_minimizer = match seq_reversed {
+                    true => minimizers_pos[i+k-1].1 + params.l - 1,
+                    false => minimizers_pos[i].0
+                };
+                let position_of_last_minimizer = match seq_reversed {
+                    true => minimizers_pos[i].1 + params.l - 1,
+                    false => minimizers_pos[i+k-1].1
+                };
+                let mut shift = (minimizers_pos[i].0, minimizers_pos[i+k-1].1 + params.l - 1);
+                let read_offsets = (read_obj.minimizers_pos[i].0 as usize, (read_obj.minimizers_pos[i+k-1].1 as usize + l - 1), (read_obj.minimizers_pos[i+k-1].1 + l - read_obj.minimizers_pos[i].0));
+                //println!("Shift: {:?}", shift);
+                let mut span_seq = &read_obj.seq[shift.0..shift.1 + 1];
+                //println!("Span_seq: {:?}, len: {:?}", span_seq, span_seq.len());
+                //start of kminmer : pos[i]
+                //end of kminmer : pos [i+k-1]+l
+                let lookup = query_kminmer_lookup(kminmer, Some(span_seq), &seq_reversed, &seq_id, &shift, &mut sequences_file, thread_id, Some(&read_obj.seq), None);
+                match lookup {
+                    Some(x) => lookups.push(x),
+                    None => continue
                 };
             }
         }
         if lookups.len() > 0 {
-            return Some((lookups, read_obj))
+            return Some((lookups, None, Some(read_obj)))
         }
         else {return None}
     };
-    let query_process_read_fasta = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<QueryMatch>, Read)>| {
+    let query_process_read_fasta = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<QueryMatch>, Option<Read>, Option<ReadSync>)>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
-        *found = query_process_read_aux(&seq_str, &seq_id);
+        if params.syncmer != 0 {*found = query_process_read_aux_sync(&seq_str, &seq_id);}
+        else {*found = query_process_read_aux(&seq_str, &seq_id);}
     };
-    let query_process_read_fastq = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<QueryMatch>, Read)>| {
+    let query_process_read_fastq = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<QueryMatch>, Option<Read>, Option<ReadSync>)>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
-        *found = query_process_read_aux(&seq_str, &seq_id);
+        if params.syncmer != 0 {*found = query_process_read_aux_sync(&seq_str, &seq_id);}
+        else {*found = query_process_read_aux(&seq_str, &seq_id);}
     };
 
 
     // parallel fasta parsing, with a main thread that writes to disk and populates hash tables
-    let mut main_thread = |found: &Option<(Vec<QueryMatch>, Read)>| { // runs in main thread
+    let mut main_thread = |found: &Option<(Vec<QueryMatch>, Option<Read>, Option<ReadSync>)>| { // runs in main thread
         nb_reads += 1;
         if found.is_some() {
             //println!("Received read in main thread, nb kmers: {}", vec.len());
             let debug_only_display_matches = false;
-            let (query_lookups, read_obj) = found.as_ref().unwrap();
+            let (query_lookups, read_obj, read_sync_obj) = found.as_ref().unwrap();
             if debug_only_display_matches {
                 for qmatch in query_lookups.iter() {
                     println!("K-min-mer {:?}, target(s) {:?}, query {:?}", qmatch.kminmer.print_as_string(), qmatch.target, qmatch.query);
                 } // kminmer: Kmer, target: Vec<HashEntry>, query: HashEntry, unique: bool};
             }
-            query_matches.insert(read_obj.id.to_string(), query_lookups.to_vec());
+            if read_obj.is_some() {query_matches.insert(read_obj.as_ref().unwrap().id.to_string(), query_lookups.to_vec());}
+            else if read_sync_obj.is_some(){query_matches.insert(read_sync_obj.as_ref().unwrap().id.to_string(), query_lookups.to_vec());}
         }
         // Some(value) will stop the reader, and the value will be returned.
         // In the case of never stopping, we need to give the compiler a hint about the
         // type parameter, thus the special 'turbofish' notation is needed.
         None::<()>
     };
-
+    
     let buf = get_reader(&filename);
     println!("Parsing input sequences...");
     if fasta_reads {
