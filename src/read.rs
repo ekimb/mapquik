@@ -9,6 +9,7 @@ use std::fs::File;
 use std::cmp::max;
 use std::cmp::min;
 use super::Kmer;
+use super::bit;
 use super::RacyBloom;
 use super::revcomp_aware;
 //use super::ec_reads;
@@ -101,7 +102,11 @@ impl ReadSync {
         if inp_seq.len() < l {
             return ReadSync {id: inp_id.to_string(), minimizers: read_minimizers, minimizers_pos: read_minimizers_pos, transformed: read_transformed, seq: inp_seq_raw, corrected: false};
         }
-        let iter_l = NtHashIterator::new(inp_seq.as_bytes(), l).unwrap().enumerate();
+
+        let (qs, qs_pos) = bit::extract_smers(l, s, &inp_seq.as_bytes());
+        println!("{:?}\n{:?}", qs, qs_pos);
+
+        /*let iter_l = NtHashIterator::new(inp_seq.as_bytes(), l).unwrap().enumerate();
         let mut syncmers_collected = Vec::<(usize, u64)>::new();
         for (i,hash_l) in iter_l {
             let lmer = &inp_seq[i..i+l];
@@ -115,7 +120,7 @@ impl ReadSync {
         strobemer_hashes.iter().for_each(|x| read_transformed.push(*x));
         if !params.use_hpc {strobemer_pos.iter().for_each(|x| read_minimizers_pos.push((tup.1[x.0], tup.1[x.1])))} //if not HPCd need raw sequence positions
         else {strobemer_pos.iter().for_each(|x| read_minimizers_pos.push(*x));}
-        strobemer_pos.iter().for_each(|x| read_minimizers.push(inp_seq[x.0..x.0+l].to_string()));
+        strobemer_pos.iter().for_each(|x| read_minimizers.push(inp_seq[x.0..x.0+l].to_string()));*/
         //tried partitioning seq below
         /*let inp_seq_chunks = inp_seq.as_bytes().chunks(chunk_size).collect::<Vec<&[u8]>>();
         let mut chunk_count = 0;

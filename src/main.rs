@@ -52,6 +52,7 @@ mod minimizers;
 mod kmer_vec;
 //mod poa;
 mod read;
+mod bit;
 //mod pairwise;
 //mod presimp;
 use std::env;
