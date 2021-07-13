@@ -43,8 +43,3 @@ thread-id = "3.3.0"
 
 [profile.dev]
 opt-level = 3
-
-
-[[bin]]
-name = "to_basespace"
-path = "src/to_basespace.rs"
