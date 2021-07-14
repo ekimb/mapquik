@@ -183,7 +183,7 @@ pub fn extract_syncmers(seq: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
 
 } 
 
-pub fn get_next_strobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: usize, w_end: usize, q: u64) -> (i32, u64) {
+pub fn extend_kstrobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: usize, w_end: usize, q: u64) -> (i32, u64) {
     let mut min_val = u64::max_value();
     let mut strobe_pos_next = -1;
     let mut strobe_hashval_next = u64::max_value();
@@ -198,7 +198,12 @@ pub fn get_next_strobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: u
     return (strobe_pos_next, strobe_hashval_next);
 }
 
-pub fn get_randstrobe(i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(u64, u64, usize, usize, bool)> {
+/*get_kstrobe
+while iter != k {
+    let res = get_kstrobe(k, i, wmin, wmax, num_hashes, ref_id, string_hashes, pos_to_seq_coord, q, reverse)
+    while res.is_some() {
+        res = get_kstrobe
+    }
     let mut strobe_pos_next;
     let mut strobe_hashval_next;
     if i + wmax < num_hashes {
@@ -216,21 +221,59 @@ pub fn get_randstrobe(i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref
         strobe_pos_next = tuple.0; strobe_hashval_next = tuple.1;
     }
     else {return None;}
+
     let mut hash_randstrobe = string_hashes[i]/2 + strobe_hashval_next/3;
     let mut seq_pos_strobe1 = pos_to_seq_coord[i];
     let mut seq_pos_strobe2 = pos_to_seq_coord[strobe_pos_next as usize];
     let mut s = (hash_randstrobe, ref_id, seq_pos_strobe1, seq_pos_strobe2, reverse);
-    return Some(s);
+}
+*/
+pub fn get_kstrobe(k: usize, i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(u64, u64, usize, usize, bool)> {
+    let mut iterations = 1;
+    let mut kstrobe_hashval = 0;
+    let res = get_kstrobe_util(k, 1, i, wmin, wmax, num_hashes, ref_id, string_hashes, pos_to_seq_coord, q, reverse);
+    if res.is_none() {return None;}
+    else {
+        let (k_fin, strobe_pos_next, strobe_hashval_next) = res.unwrap();
+        let mut hash_randstrobe = string_hashes[i]/2 + strobe_hashval_next/3;
+        let mut seq_pos_strobe1 = pos_to_seq_coord[i];
+        let mut seq_pos_strobe2 = pos_to_seq_coord[strobe_pos_next as usize];
+        let mut s = (hash_randstrobe, ref_id, seq_pos_strobe1, seq_pos_strobe2, reverse);
+        if k != k_fin {return None;}
+        else{return Some(s);}
+    }
 }
 
-pub fn seq_to_randstrobes_read(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
+pub fn get_kstrobe_util(k_bound: usize, curr_k: usize, i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(usize, usize, u64)> {
+        if i + wmax < num_hashes {
+            let mut strobe_hash = string_hashes[i];
+            let mut w_start = i + wmin;
+            let mut w_end = i + wmax;
+            let tuple = extend_kstrobe(string_hashes, strobe_hash, w_start, w_end, q);
+            let mut k = curr_k + 1;
+            if k == k_bound {return Some((k,tuple.0 as usize, tuple.1));}
+            return get_kstrobe_util(k_bound, k, tuple.0 as usize, wmin, wmax, num_hashes, ref_id, string_hashes, pos_to_seq_coord, q, reverse)
+        }
+        else if (i + wmin + 1 < num_hashes) && (num_hashes <= i + wmax) {
+            let mut strobe_hash = string_hashes[i];
+            let mut w_start = i + wmin;
+            let mut w_end = num_hashes - 1;
+            let tuple = extend_kstrobe(string_hashes, strobe_hash, w_start, w_end, q);
+            let mut k = curr_k + 1;
+            if k == k_bound {return Some((k,tuple.0 as usize, tuple.1));}
+            return get_kstrobe_util(k_bound, k, tuple.0 as usize, wmin, wmax, num_hashes, ref_id, string_hashes, pos_to_seq_coord, q, reverse)
+        }
+        else {return None;}
+}
+
+pub fn seq_to_kstrobes_read(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
     let k = params.l;
     let s = params.syncmer;
     let wmin = params.wmin;
     let wmax = params.wmax;
-    let mut randstrobes = MersVectorRead::new();
+    let mut kstrobes = MersVectorRead::new();
     let read_length = seq.len();
-    if read_length < wmax {return randstrobes;}
+    if read_length < wmax {return kstrobes;}
     let kmask : u64 = ((1 as u64) << 2*k) - 1;
     let smask : u64 = ((1 as u64) << 2*s) - 1;
     let q = 2_u64.pow(16) - 1;
@@ -240,9 +283,9 @@ pub fn seq_to_randstrobes_read(seq: &[u8], id: u64, params: &Params) -> MersVect
     let (mut string_hashes, mut pos_to_seq_coord) = extract_syncmers(seq, params);
     let num_hashes = string_hashes.len();
     for i in 0..num_hashes + 1 {
-        let s = get_randstrobe(i, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, false);
+        let s = get_kstrobe(params.k, i, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, false);
         if s.is_none() {continue;}
-        randstrobes.push(s.unwrap());
+        kstrobes.push(s.unwrap());
     }
     string_hashes.reverse();
     pos_to_seq_coord.reverse();
@@ -250,21 +293,21 @@ pub fn seq_to_randstrobes_read(seq: &[u8], id: u64, params: &Params) -> MersVect
         pos_to_seq_coord[i] = read_length - pos_to_seq_coord[i] - k;
     }
     for i in 0..num_hashes + 1 {
-        let s = get_randstrobe(i, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, true);
+        let s = get_kstrobe(params.k, i, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, true);
         if s.is_none() {continue;}
-        randstrobes.push(s.unwrap());
+        kstrobes.push(s.unwrap());
     }
-    return randstrobes;
+    return kstrobes;
 }
 
-pub fn seq_to_randstrobes_ref(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
+pub fn seq_to_kstrobes_ref(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
     let k = params.l;
     let s = params.syncmer;
     let wmin = params.wmin;
     let wmax = params.wmax;
-    let mut randstrobes = MersVectorRead::new();
+    let mut kstrobes = MersVectorRead::new();
     let read_length = seq.len();
-    if read_length < wmax {return randstrobes;}
+    if read_length < wmax {return kstrobes;}
     let kmask : u64 = ((1 as u64) << 2*k) - 1;
     let smask : u64 = ((1 as u64) << 2*s) - 1;
     let q = 2_u64.pow(16) - 1;
@@ -274,11 +317,11 @@ pub fn seq_to_randstrobes_ref(seq: &[u8], id: u64, params: &Params) -> MersVecto
     let (mut string_hashes, mut pos_to_seq_coord) = extract_syncmers(seq, params);
     let num_hashes = string_hashes.len();
     for i in 0..num_hashes + 1 {
-        let s = get_randstrobe(i, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, false);
+        let s = get_kstrobe(params.k, i, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, false);
         if s.is_none() {continue;}
-        randstrobes.push(s.unwrap());
+        kstrobes.push(s.unwrap());
     }
-    return randstrobes;
+    return kstrobes;
 }
 
 pub fn remove_kmer_hash_from_flat_vector(flat_vector: &MersVectorRead) -> MersVectorReduced {
@@ -291,8 +334,8 @@ pub fn remove_kmer_hash_from_flat_vector(flat_vector: &MersVectorRead) -> MersVe
 }
 
 pub fn index(ref_seq: &[u8], ref_id: u64, params: &Params, read: bool) -> MersVectorRead {
-    if read {return seq_to_randstrobes_read(ref_seq, ref_id, params);}
-    else {return seq_to_randstrobes_ref(ref_seq, ref_id, params);}
+    if read {return seq_to_kstrobes_read(ref_seq, ref_id, params);}
+    else {return seq_to_kstrobes_ref(ref_seq, ref_id, params);}
 }
 
 pub fn find_nams(query_mers: &MersVectorRead, ref_mers: &MersVectorReduced, mers_index: &KmerLookup, k: usize, read: &[u8], hit_upper_window_lim: usize, filter_cutoff: usize) -> Vec<NAM> {

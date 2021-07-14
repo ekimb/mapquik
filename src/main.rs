@@ -55,15 +55,20 @@ mod kmer_vec;
 mod read;
 mod strobes;
 mod closures;
-use crate::strobes::*;
+mod kminmers;
+mod kstrobes;
 //mod pairwise;
 //mod presimp;
 use std::env;
+pub type MersVectorRead = Vec<(u64, u64, usize, usize, bool)>;
+pub type MersVector = Vec<(u64, u64, usize, usize)>;
+pub type MersVectorReduced = Vec<(u64, usize, usize)>;
+pub type KmerLookup = DashMap<u64, (usize, usize)>;
+pub type PosIndex = DashMap<u64, MersVectorRead>;
 
 const revcomp_aware : bool = true; // shouldn't be set to false except for strand-directed data or for debugging
 type Kmer = kmer_vec::KmerVec;
 type Overlap = kmer_vec::KmerVec;
-use crate::strobes::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, NAM, Hit, KmerLookup};
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
 pub struct HashEntry {origin: String, seq: String, seqlen: u32, shift: (usize, usize), seq_rev: bool}
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
@@ -529,97 +534,15 @@ fn main() {
         Err(why) => panic!("Couldn't create {}: {}", paf_path, why.description()),
         Ok(paf_file) => paf_file,
     };
-    // delete all previous sequence files
-    for path in glob(&format!("{}*.sequences", output_prefix.to_str().unwrap()).to_string()).expect("Failed to read glob pattern.") {
-        let path = path.unwrap();
-        let path = path.to_str().unwrap(); // rust really requires me to split the let statement in two..
-        println!("Removing old sequences file: {}.", &path);
-        fs::remove_file(path);
+    if params.syncmer != 0 && opt.k.is_some() {
+        closures::run_kstrobes(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     }
-    let mut seq_write = |file: &mut SeqFileType, s| {write!(file, "{}", s);};
-    let mut sequences_files : Arc<DashMap<ThreadIdType, SeqFileType>> = Arc::new(DashMap::new());
-    let create_sequences_file = |thread_id: ThreadIdType| -> SeqFileType {
-        let seq_path = PathBuf::from(format!("{}.{}.sequences", output_prefix.to_str().unwrap(), thread_id));
-        let mut file = match File::create(&seq_path) {
-            Err(why) => panic!("Couldn't create file: {}.", why.description()),
-            Ok(file) => file,
-        };
-        //let mut sequences_file = BufWriter::new(file);
-        let mut sequences_file = SeqFileType::new(file); // regular lz4f
-        //let mut sequences_file = WriteCompressor::new(&mut file, PreferencesBuilder::new().compression_level(CLEVEL_HIGH).build()).unwrap();  // too slow
-        seq_write(&mut sequences_file, format!("# k = {}\n",k));
-        seq_write(&mut sequences_file, format!("# l = {}\n",l));
-        seq_write(&mut sequences_file, "# Structure of remaining of the file:\n".to_string());
-        seq_write(&mut sequences_file, "# [node name]\t[list of minimizers]\t[sequence of node]\t[abundance]\t[origin]\t[shift]\n".to_string());
-        sequences_file
-    };
-
-
-    
-    
-        // worker thread
-    
-
-    println!("Parsing reference sequence...");
-    if params.syncmer != 0 {
+    else if params.syncmer != 0 {
         closures::run_randstrobes(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     }
-    /*else {
-        let buf = get_reader(&ref_filename);
-        if ref_fasta_reads {
-            let reader = seq_io::fasta::Reader::new(buf);
-            read_process_fasta_records(reader, threads as u32, queue_len, ref_process_read_fasta, |record, found| {ref_main_thread(found)});
-        }
-        else {
-            let reader = seq_io::fastq::Reader::new(buf);
-            read_process_fastq_records(reader, threads as u32, queue_len, ref_process_read_fastq, |record, found| {ref_main_thread(found)});
-        }
-        let buf = get_reader(&filename);
-        if fasta_reads {
-            let reader = seq_io::fasta::Reader::new(buf);
-            read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta, |record, found| {main_thread(found)});
-        }
-        else {
-            let reader = seq_io::fastq::Reader::new(buf);
-            read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq, |record, found| {main_thread(found)});
-        }
+    else {
+        closures::run_kminmers(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     }
-    if params.syncmer == 0 {
-        println!("Indexed {} reference k-min-mers.", kmer_table.len());
-        for mut sequences_file in sequences_files.iter_mut() {sequences_file.flush().unwrap();}
-        let query_matches_view = Arc::try_unwrap(query_matches).unwrap().into_read_only();
-        for mut sequences_file in sequences_files.iter_mut() {sequences_file.flush().unwrap();}
-        let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
-        let mut file = match File::create(&path) {
-            Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
-            Ok(file) => file,
-        };
-        let mut match_count = 0;
-        for (id, entry) in query_matches_view.iter() {
-            for qmatch in entry.iter() {
-                let mut query_abund = *query_abundance_table.get(&qmatch.kminmer).unwrap();
-                let mut ref_abund = *ref_abundance_table.get(&qmatch.kminmer).unwrap();
-                //if query_abund == 1 {continue;}
-                if query_abund == 1 || ref_abund > 1 {continue;}
-                let query = &qmatch.query;
-                let mut target = &qmatch.target[0];
-                let mut query_span = query.shift.1 - query.shift.0;
-                let mut target_span = target.shift.1 - target.shift.0;
-                let ori = paf_output::determine_orientation(query, target);
-                let mut block_len = target_span;
-                println!("Query origin: {}\tTarget origin: {}\tQuery abundance: {:?}\tTarget abundance: {:?}\tQuery span: {}\tTarget span: {}", query.origin, target.origin, query_abund, ref_abund, query_span, target_span);
-                let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query.origin, query.seqlen, query.shift.0, query.shift.1, ori, target.origin, target.seqlen, target.shift.0, target.shift.1, block_len, block_len, "255");
-                write!(file, "{}", paf_line).expect("Error writing line.");
-                match_count += 1;
-                //target = &qmatch.target[1];}
-                //let ori = paf_output::determine_orientation(query, target);
-                //let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query.origin, query.seqlen, query.shift.0, query.shift.1, ori, target.origin, target.seqlen, target.shift.0, target.shift.1, residue_match, block_len, "255");
-                //let (cigar, block_len, residue_match) = paf_output::align(query, target);
-                //let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tcg:Z:{}\n", query.origin, query.seqlen, query.shift.0, query.shift.1, ori, target.origin, target.seqlen, target.shift.0, target.shift.1, residue_match, block_len, "255", cigar);
-            }
-        }
-        //println!("Found {} matches.", match_count);
-    }*/
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
     println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);
