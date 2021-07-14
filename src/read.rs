@@ -3,13 +3,15 @@ use super::minimizers;
 use nthash::{ntc64,NtHashIterator};
 use std::collections::{HashMap,HashSet};
 use std::collections::hash_map::Entry::{Occupied, Vacant};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::collections::VecDeque;
 use std::iter::FromIterator;
 use std::fs::File;
 use std::cmp::max;
 use std::cmp::min;
 use super::Kmer;
-use super::bit;
+use super::strobes;
 use super::RacyBloom;
 use super::revcomp_aware;
 //use super::ec_reads;
@@ -22,6 +24,14 @@ use std::io::Write;
 use super::utils::pretty_minvec;
 use super::utils::median;
 type Buckets<'a> = HashMap<Vec<u64>, Vec<String>>;
+
+
+pub fn hash_id<T: Hash>(t: &T) -> u64 {
+    let mut s = DefaultHasher::new();
+    t.hash(&mut s);
+    s.finish()
+}
+
 #[derive(Clone, Default)]
 pub struct ReadSync {
     pub id: String,
@@ -102,9 +112,6 @@ impl ReadSync {
         if inp_seq.len() < l {
             return ReadSync {id: inp_id.to_string(), minimizers: read_minimizers, minimizers_pos: read_minimizers_pos, transformed: read_transformed, seq: inp_seq_raw, corrected: false};
         }
-
-        let (qs, qs_pos) = bit::extract_smers(l, s, &inp_seq.as_bytes());
-        println!("{:?}\n{:?}", qs, qs_pos);
 
         /*let iter_l = NtHashIterator::new(inp_seq.as_bytes(), l).unwrap().enumerate();
         let mut syncmers_collected = Vec::<(usize, u64)>::new();
