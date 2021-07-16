@@ -56,6 +56,7 @@ mod read;
 mod strobes;
 mod closures;
 mod kminmers;
+mod ksyncmers;
 mod kstrobes;
 //mod pairwise;
 //mod presimp;
@@ -64,6 +65,7 @@ pub type MersVectorRead = Vec<(u64, u64, usize, usize, bool)>;
 pub type MersVector = Vec<(u64, u64, usize, usize)>;
 pub type MersVectorReduced = Vec<(u64, usize, usize)>;
 pub type KmerLookup = DashMap<u64, (usize, usize)>;
+pub type KmerLookupMod = DashMap<u64, (u64, usize)>;
 pub type PosIndex = DashMap<u64, MersVectorRead>;
 
 const revcomp_aware : bool = true; // shouldn't be set to false except for strand-directed data or for debugging
@@ -114,7 +116,7 @@ pub struct Params {
     lmer_counts_max: u32,
     uhs: bool,
     lcp: bool,
-    syncmer: usize,
+    s: usize,
     has_lmer_counts: bool,
     use_bf: bool,
     use_hpc: bool,
@@ -294,9 +296,9 @@ struct Opt {
     /// minimizers from a read.
     #[structopt(short, long)]
     density: Option<f64>,
-    /// Syncmer-based selection scheme (syncmer length).
+    /// Syncmer length for syncmer-based selection scheme.
     #[structopt(short, long)]
-    syncmer: Option<usize>,
+    s: Option<usize>,
     /// Filter cutoff value
     ///
     /// Removes this fraction of repetitive syncmers.
@@ -315,6 +317,9 @@ struct Opt {
     /// doesn't filter any kminmers.
     #[structopt(parse(from_os_str), long)]
     reference: Option<PathBuf>,
+    /// Enable strobemers.
+    #[structopt(long)]
+    strobe: bool,
     /// Enable Bloom filters
     ///
     /// Bloom filters can be used to reduce memory usage,
@@ -372,7 +377,7 @@ fn main() {
     let mut wmax : usize = 0;
     let mut wmin : usize = 0;
     let mut f : f64 = 0.0;
-    let mut syncmer : usize = 0;
+    let mut s : usize = 0;
     let mut density : f64 = 0.10;
     let mut reference : bool = false;
     let mut windowed : bool = false;
@@ -380,6 +385,7 @@ fn main() {
     let mut lmer_counts_min : u32 = 2;
     let mut lmer_counts_max : u32 = 100000;
     let mut use_bf : bool = false;
+    let mut use_strobe : bool = false;
     let mut use_hpc : bool = false;
     let mut threads : usize = 8;
     if !opt.reads.is_none() {filename = opt.reads.unwrap().clone();} 
@@ -408,10 +414,11 @@ fn main() {
     else {
         if !opt.k.is_none() {k = opt.k.unwrap()} else {println!("Warning: Using default k value ({}).", k);} 
         if !opt.l.is_none() {l = opt.l.unwrap()} else {println!("Warning: Using default l value ({}).", l);}
-        if !opt.density.is_none() {density = opt.density.unwrap()} else if opt.syncmer.is_none() {println!("Warning: Using default density value ({}%).", density * 100.0);}
+        if !opt.density.is_none() {density = opt.density.unwrap()} else if opt.s.is_none() {println!("Warning: Using default density value ({}%).", density * 100.0);}
     }
     if !opt.threads.is_none() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
     if opt.bf {use_bf = true;}
+    if opt.strobe {use_strobe = true;}
     if opt.hpc {use_hpc = true;}
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if !opt.lmer_counts.is_none() { 
@@ -428,12 +435,12 @@ fn main() {
         lcp = true;
         lcp_filename = opt.lcp.unwrap(); 
     } 
-    if !opt.syncmer.is_none() { 
-        syncmer = opt.syncmer.unwrap(); 
-        println!("Syncmer parameter s: {}", syncmer);
+    if !opt.s.is_none() { 
+        s = opt.s.unwrap(); 
+        println!("Syncmer parameter s: {}", s);
         if !opt.f.is_none() {f = opt.f.unwrap()} else {println!("Warning: Using default filter cutoff value ({}).", f);} 
-        if !opt.wmin.is_none() {wmin = opt.wmin.unwrap()} else {println!("Warning: Using default wmin value ({}).", l/(l-syncmer+1)+2);} 
-        if !opt.wmax.is_none() {wmax = opt.wmax.unwrap()} else {println!("Warning: Using default wmax value ({}).", l/(l-syncmer+1)+10);} 
+        if !opt.wmin.is_none() {wmin = opt.wmin.unwrap()} else {println!("Warning: Using default wmin value ({}).", l/(l-s+1)+2);} 
+        if !opt.wmax.is_none() {wmax = opt.wmax.unwrap()} else {println!("Warning: Using default wmax value ({}).", l/(l-s+1)+10);} 
 
     } 
     if !opt.prefix.is_none() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
@@ -452,7 +459,7 @@ fn main() {
         lmer_counts_max,
         uhs,
         lcp,
-        syncmer,
+        s,
         has_lmer_counts,
         use_bf,
         use_hpc,
@@ -534,10 +541,13 @@ fn main() {
         Err(why) => panic!("Couldn't create {}: {}", paf_path, why.description()),
         Ok(paf_file) => paf_file,
     };
-    if params.syncmer != 0 && opt.k.is_some() {
+    if params.s != 0 && opt.k.is_some() && use_strobe {
         closures::run_kstrobes(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     }
-    else if params.syncmer != 0 {
+    else if params.s != 0 && opt.k.is_some() {
+        closures::run_ksyncmers(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
+    }
+    else if params.s != 0 && use_strobe {
         closures::run_randstrobes(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     }
     else {

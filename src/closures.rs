@@ -26,7 +26,9 @@ use super::kstrobes;
 use super::kstrobes::{NAM as KStrobeNAM};
 use super::kminmers;
 use super::kminmers::{NAM as KminmerNAM};
-use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookup};
+use super::ksyncmers;
+use super::ksyncmers::{NAM as KsyncmerNAM};
+use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookup, KmerLookupMod};
 use std::path::PathBuf;
 use dashmap::DashSet;
 use super::Params;
@@ -84,7 +86,7 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
         let mut kstrobes = index_kstrobes(seq_id_hash, seq_id, seq_str, params, true);
         let fc = *filter_cutoff.get(&0).unwrap();
         let all_mers = all_mers_vector.get(&1).unwrap();
-        let hit_upper_window_lim = (params.l-params.syncmer+1)*params.wmax;
+        let hit_upper_window_lim = (params.l-params.s+1)*params.wmax;
         output = kstrobes::find_nams(&kstrobes, &all_mers, &mers_index, params.l, seq_str, hit_upper_window_lim, fc);
         if output.len() > 0 {
             return Some((output, seq_id_hash))
@@ -281,7 +283,7 @@ pub fn run_randstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Para
         let mut randstrobes = index_randstrobes(seq_id_hash, seq_id, seq_str, params, true);
         let fc = *filter_cutoff.get(&0).unwrap();
         let all_mers = all_mers_vector.get(&1).unwrap();
-        let hit_upper_window_lim = (params.l-params.syncmer+1)*params.wmax;
+        let hit_upper_window_lim = (params.l-params.s+1)*params.wmax;
         output = strobes::find_nams(&randstrobes, &all_mers, &mers_index, params.l, seq_str, hit_upper_window_lim, fc);
         if output.len() > 0 {
             return Some((output, seq_id_hash))
@@ -550,6 +552,7 @@ pub fn run_kminmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
         }
         let mut s = (prev_offset, count);
         mers_index.insert(curr_k, s);
+        mers_index.insert(prev_k, s);
         if count == 1 {tot_occur_once += 1;}
         else if count > 100 {tot_high_ab += 1;}
         else {tot_mid_ab += 1;}
@@ -618,6 +621,211 @@ pub fn run_kminmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
     }
 }
 
+pub fn run_ksyncmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
+    let mut id_hashes : Arc<DashMap<u64, String>> = Arc::new(DashMap::new());
+    let mut id_lengths : Arc<DashMap<u64, usize>> = Arc::new(DashMap::new());
+    let mut hash_counts : Arc<DashMap<u64, usize>> = Arc::new(DashMap::new());
+    let mut tmp_index : Arc<PosIndex> = Arc::new(PosIndex::new());
+    let mut id_syncmers_pos : Arc<DashMap<u64, (Vec<u64>, Vec<usize>)>> = Arc::new(DashMap::new());
+    let mut mers_index : Arc<KmerLookupMod> = Arc::new(KmerLookupMod::new());
+    let mut filter_cutoff : Arc<DashMap<usize, usize>> = Arc::new(DashMap::new());
+    let mut all_nams = Vec::<(Vec<KsyncmerNAM>, u64)>::new();
+    let mut all_mers_vector : Arc<DashMap<usize, MersVectorRead>> = Arc::new(DashMap::new());
+    let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
+    let mut paf_file = match File::create(&path) {
+        Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
+        Ok(paf_file) => paf_file,
+    };
+    let mut index_ksyncmers = |seq_id_hash: u64, seq_id: &str, seq: &[u8], params: &Params, read: bool| -> MersVectorRead {
+        let (mut string_hashes, mut pos_to_seq_coord, mut ksyncmers) = ksyncmers::index(seq, seq_id_hash, params, read);
+        //println!("Seq: {:?}, read_seq: {:?}", seq, read_seq);
+        id_hashes.insert(seq_id_hash, seq_id.to_string());
+        id_lengths.insert(seq_id_hash, seq.len());
+        tmp_index.insert(seq_id_hash, ksyncmers.to_vec());
+
+        return ksyncmers;   
+    };
+    let ref_process_read_aux_ksyncmer = |ref_str: &[u8], ref_id: &str| -> Option<(MersVectorRead, u64)> {
+        let thread_id :usize =  thread_id::get();
+        //let seq = std::str::from_utf8(ref_str).unwrap().replace("\n", "").replace("\r", "");
+        //let seq = seq_for_ref; 
+        let ref_id_hash = hash_id(&ref_id);
+        let mut ksyncmers = index_ksyncmers(ref_id_hash, ref_id, ref_str, params, false);
+        return Some((ksyncmers, ref_id_hash))
+    
+    };
+    let ref_process_read_fasta_ksyncmer = |record: seq_io::fasta::RefRecord, found: &mut Option<(MersVectorRead, u64)>| {
+        let ref_str = record.seq(); 
+        let ref_id = record.id().unwrap().to_string();
+        *found = ref_process_read_aux_ksyncmer(&ref_str, &ref_id);
+    };
+    let ref_process_read_fastq_ksyncmer = |record: seq_io::fastq::RefRecord, found: &mut Option<(MersVectorRead, u64)>| {
+        let ref_str = record.seq(); 
+        let ref_id = record.id().unwrap().to_string();
+        *found = ref_process_read_aux_ksyncmer(&ref_str, &ref_id);
+    };
+    let mut ref_main_thread_ksyncmer = |found: &mut Option<(MersVectorRead, u64)>| { // runs in main thread
+        let (ksyncmers, seq_id_hash) = found.as_ref().unwrap();
+        None::<()>
+    };
+    let query_process_read_aux_ksyncmer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<KsyncmerNAM>, u64)> {
+        let thread_id :usize =  thread_id::get();
+        let mut output : Vec<KsyncmerNAM> = Vec::new();
+        //let seq = std::str::from_utf8(seq_str).unwrap(); // see https://docs.rs/seq_io/0.4.0-alpha.0/seq_io/fasta/index.html
+        let seq_id_hash = hash_id(&seq_id);
+        let mut ksyncmers = index_ksyncmers(seq_id_hash, seq_id, seq_str, params, true);
+        let fc = *filter_cutoff.get(&0).unwrap();
+        output = ksyncmers::find_nams(&ksyncmers, &tmp_index, &mers_index, &hash_counts, params.l, seq_str, fc, params.k, &id_hashes, &id_lengths);
+        if output.len() > 0 {
+            return Some((output, seq_id_hash))
+        }
+        else {return None}
+    };
+    
+    let query_process_read_fasta_ksyncmer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<KsyncmerNAM>, u64)>| {
+        let seq_str = record.seq(); 
+        let seq_id = record.id().unwrap().to_string();
+        *found = query_process_read_aux_ksyncmer(&seq_str, &seq_id);
+    
+    };
+    let query_process_read_fastq_ksyncmer = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<KsyncmerNAM>, u64)>| {
+        let seq_str = record.seq(); 
+        let seq_id = record.id().unwrap().to_string();
+        *found = query_process_read_aux_ksyncmer(&seq_str, &seq_id);
+    };
+    let mut main_thread_ksyncmer = |found: &Option<(Vec<KsyncmerNAM>, u64)>| { // runs in main thread
+        if found.is_some() {
+            let (nams, seq_id_hash) = found.as_ref().unwrap();
+            all_nams.push((nams.to_vec(), *seq_id_hash));
+        }
+        // Some(value) will stop the reader, and the value will be returned.
+        // In the case of never stopping, we need to give the compiler a hint about the
+        // type parameter, thus the special 'turbofish' notation is needed.
+        None::<()>
+    };
+    let mut construct_flat_vector = || -> (MersVectorRead, u64) {
+        let mut flat_vector = MersVectorRead::new();
+        for entry in tmp_index.iter_mut() {
+            for t in entry.iter() {flat_vector.push(*t);}
+        }
+        flat_vector.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        let mut prev_k = flat_vector[0].0;
+        let mut unique_elements = 1;
+        for entry in flat_vector.iter() {
+            let mut curr_k = entry.0;
+            if curr_k != prev_k {unique_elements += 1;}
+            prev_k = curr_k;
+        }
+        return (flat_vector, unique_elements);
+    };
+
+    let mut index_vector = |tmp_index: &PosIndex| {
+        for entry in tmp_index.into_iter() {
+            let ref_id = entry.key();
+            let flat_vector = entry.value();
+            println!("Flat vector size: {}", flat_vector.len());
+            let mut offset = 0;
+            for entry in flat_vector.iter() {
+                let curr_k = entry.0;
+                let mut s = (*ref_id, offset);
+                mers_index.insert(curr_k, s);
+                offset += 1;      
+            }
+        }
+    };
+
+    let mut count_vector = |flat_vector: &MersVectorRead, f: f64| -> usize {
+        println!("Flat vector size: {}", flat_vector.len());
+        let mut offset = 0;
+        let mut prev_offset = 0;
+        let mut count = 0;
+        let mut tot_occur_once = 0;
+        let mut tot_high_ab = 0;
+        let mut tot_mid_ab = 0;
+        let mut kminmer_counts = Vec::<usize>::new();
+        let mut t = flat_vector[0];
+        let mut prev_k = t.0;
+        let mut curr_k = 0;
+        for entry in flat_vector.iter() {
+            curr_k = entry.0;
+            if curr_k == prev_k {count += 1;}
+            else {
+                if count == 1 {tot_occur_once += 1;}
+                else if count > 100 {tot_high_ab += 1;}
+                else {tot_mid_ab += 1;}
+                kminmer_counts.push(count);
+                hash_counts.insert(prev_k, count);
+                count = 1;
+                prev_k = curr_k;
+                prev_offset = offset;
+            }
+            offset += 1;      
+        }
+        if count == 1 {tot_occur_once += 1;}
+        else if count > 100 {tot_high_ab += 1;}
+        else {tot_mid_ab += 1;}
+        kminmer_counts.push(count);
+        hash_counts.insert(curr_k, count);
+        println!("Total k-min-mers count:\t{}", offset);
+        println!("Total k-min-mers unique:\t{}", tot_occur_once);
+        println!("Total k-min-mers high-ab:\t{}", tot_high_ab);
+        println!("Total k-min-mers mid-ab:\t{}", tot_mid_ab);
+        if params.f != 0.0 {
+            kminmer_counts.sort_unstable();
+            kminmer_counts.reverse();
+            let mut index_cutoff = (kminmer_counts.len() as f64 * f) as usize;
+            println!("Filtered cutoff index:\t{}", index_cutoff);
+            let mut filter_cutoff = kminmer_counts[index_cutoff];
+            println!("Filtered cutoff count:\t{}", filter_cutoff);
+            return filter_cutoff;
+        }
+        else {return 0;}
+    };
+    let mut remove_kmer_hash_from_flat_vector = |flat_vector: &MersVectorRead| -> MersVectorReduced {
+        let mut mers_vector_reduced = MersVectorReduced::new();
+        for entry in flat_vector.iter() {
+            let s = (entry.1, entry.2, entry.3);
+            mers_vector_reduced.push(s);
+        }
+        return mers_vector_reduced;
+    };
+    let buf = get_reader(&ref_filename);
+    if ref_fasta_reads {
+        let reader = seq_io::fasta::Reader::new(buf);
+        read_process_fasta_records(reader, threads as u32, queue_len, ref_process_read_fasta_ksyncmer, |record, found| {ref_main_thread_ksyncmer(found)});
+        let (mut flat_vector, unique_elements) = construct_flat_vector();
+        println!("Unique k-syncmers:\t{}", unique_elements);
+        let f = params.f;
+        index_vector(&tmp_index);
+        filter_cutoff.insert(0, count_vector(&flat_vector, f));
+
+    }
+    else {
+        let reader = seq_io::fastq::Reader::new(buf);
+        read_process_fastq_records(reader, threads as u32, queue_len, ref_process_read_fastq_ksyncmer, |record, found| {ref_main_thread_ksyncmer(found)});
+        let (mut flat_vector, unique_elements) = construct_flat_vector();
+        println!("Unique k-syncmers:\t{}", unique_elements);
+        let f = params.f;
+        index_vector(&tmp_index);
+        filter_cutoff.insert(0, count_vector(&flat_vector, f));
+    }
+    let buf = get_reader(&filename);
+    if fasta_reads {
+        let reader = seq_io::fasta::Reader::new(buf);
+        read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_ksyncmer, |record, found| {main_thread_ksyncmer(found)});
+        let id_hashes_view = Arc::try_unwrap(id_hashes).unwrap().into_read_only();
+        let id_lengths_view = Arc::try_unwrap(id_lengths).unwrap().into_read_only();
+        ksyncmers::output_paf(&mut all_nams, params.l, id_hashes_view, id_lengths_view, &mut paf_file, params.k);
+
+    }
+    else {
+        let reader = seq_io::fastq::Reader::new(buf);
+        read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_ksyncmer, |record, found| {main_thread_ksyncmer(found)});
+        let id_hashes_view = Arc::try_unwrap(id_hashes).unwrap().into_read_only();
+        let id_lengths_view = Arc::try_unwrap(id_lengths).unwrap().into_read_only();
+        ksyncmers::output_paf(&mut all_nams, params.l, id_hashes_view, id_lengths_view, &mut paf_file, params.k);
+    }
+}
 
 
 

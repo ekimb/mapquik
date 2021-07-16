@@ -89,7 +89,7 @@ impl ReadSync {
         let size_miniverse = params.size_miniverse as u64;
         let density = params.density;
         let l = params.l;
-        let s = params.syncmer;
+        let s = params.s;
         let t = ((l-s+1) as f64/2.0).ceil() as usize;
         let strobe_w_min_offset = (l / (l - s + 1)) + 2;
         let strobe_w_max_offset = (l / (l - s + 1)) + 10;

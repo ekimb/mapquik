@@ -93,7 +93,7 @@ pub fn update_window(mut q: &mut VecDeque<u64>, mut q_pos: &mut VecDeque<usize>,
 
 pub fn extract_syncmers(seq: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
     let k = params.l;
-    let s = params.syncmer;
+    let s = params.s;
     let wmin = params.wmin;
     let wmax = params.wmax;
     let smask : u64 = ((1 as u64) << 2*s) - 1;
@@ -225,7 +225,7 @@ pub fn get_randstrobe(i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref
 
 pub fn seq_to_randstrobes_read(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
     let k = params.l;
-    let s = params.syncmer;
+    let s = params.s;
     let wmin = params.wmin;
     let wmax = params.wmax;
     let mut randstrobes = MersVectorRead::new();
@@ -259,7 +259,7 @@ pub fn seq_to_randstrobes_read(seq: &[u8], id: u64, params: &Params) -> MersVect
 
 pub fn seq_to_randstrobes_ref(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
     let k = params.l;
-    let s = params.syncmer;
+    let s = params.s;
     let wmin = params.wmin;
     let wmax = params.wmax;
     let mut randstrobes = MersVectorRead::new();
