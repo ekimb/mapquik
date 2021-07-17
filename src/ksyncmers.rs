@@ -266,9 +266,14 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
     let mut hit_count_all = 0;
     let read_length = read.len();
     let mut i = 0;
+    let mut prev_hit_end = 0;
+    let mut prev_rc = false;
     while i < query_mers.len() {
         let q = query_mers[i];
-        let mut h = Hit {query_id: q.1, ref_id: 0, query_s: q.2, query_e: q.3 + l, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4};
+        let mut curr_rc = q.4;
+        let mut query_new_start = 0;
+        if prev_hit_end != 0 && prev_rc == curr_rc {query_new_start = prev_hit_end + 1;}
+        let mut h = Hit {query_id: q.1, ref_id: 0, query_s: query_new_start, query_e: q.3, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4};
         let mer_hashv = q.0;
         let mut mer_entry = mers_index.get_mut(&mer_hashv);
         let mut extend_offset = 0;
@@ -282,15 +287,16 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
             if *count < filter_cutoff || filter_cutoff == 0 {
                 let mut j = offset;
                 let r = ref_mers[j];
-                h.ref_s = r.2;
-                //println!("Query: {}\tRef: {}\tQuery start: {}\tRef start: {}",  q.1, r.1, q.0, r.0);
+                h.ref_s = r.2 - (q.2 - query_new_start);
+                //println!("Query: {:?}\tRef: {:?}",  q, r);
                 h.ref_id = ref_id;
                 while query_mers[i+extend_offset].0 == ref_mers[j+extend_offset].0 {
                     let r_next = ref_mers[j+extend_offset];
                     let q_next = query_mers[i+extend_offset];
-                    h.query_e = q_next.3 + l;
-                    h.ref_e = r_next.3 + l;
+                    h.query_e = q_next.3 + l - 1;
+                    h.ref_e = r_next.3 + l - 1;
                     h.hit_count += 1;
+                    prev_rc = h.is_rc;
                     //println!("Extend: {}\tQuery next: {}\tRef next: {}\tQuery end: {}\tRef end: {}",  extend_offset, q_next.0, r_next.0, h.query_e, h.ref_e);
                     extend_offset += 1;
                     if i + extend_offset == query_mers.len() {break;}
@@ -302,6 +308,7 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                 }
                 else {hits_per_ref.insert(ref_id, vec![h.clone()]);}
                 hit_count_all += 1;
+                prev_hit_end = h.query_e;
                     /*let r = ref_mers[j];
                     let ref_id = r.1;
                     let ref_s = r.2;
@@ -314,7 +321,7 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                 //}
            }
         }
-        i += extend_offset + 1;
+        if extend_offset == 0 {i += 1;} else {i += extend_offset;}
     }
     let mut final_nams = Vec::<NAM>::new();
     let mut prev_key : u64 = 0;
@@ -326,10 +333,13 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
         hit_ids.dedup();
         for id in hit_ids.iter() {
             let query_id_str = id_hashes.get(&id).unwrap();
+            let query_len = *id_lengths.get(&id).unwrap();
             let ref_id_str = id_hashes.get(&ref_id).unwrap();
             println!("_____________________{} to {}_____________\nRC", *query_id_str, *ref_id_str);
             let mut prev_q_start = 0;
             let mut mono_rc = true;
+            let mut fwd_hit_avg = 0.0;
+            let mut rc_hit_avg = 0.0;
             let mut mono_fwd = true;
             let mut fwd_counts = 0;
             let mut rc_counts = 0;
@@ -347,7 +357,7 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                 let query_hit_id_str = id_hashes.get(&prev_hit.query_id).unwrap();
                 let ref_hit_id_str = id_hashes.get(&prev_hit.ref_id).unwrap();
                 rc_hits_cleared.push(prev_hit);
-                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, query_len, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
                 for i in 1..rc_hits.len() {
                     let mut curr_hit = rc_hits[i];
                     let mut curr_ref_s = curr_hit.ref_s;
@@ -358,12 +368,13 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                         continue;
                     }
                     else {
-                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
+                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, query_len, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
                         rc_hits_cleared.push(curr_hit);
                         prev_ref_s = curr_ref_s;
                     }
                 }
                 rc_counts = rc_hits_cleared.iter().map(|hit| hit.hit_count).sum();
+                if rc_hits_cleared.len() != 0 {rc_hit_avg = rc_counts as f64 / rc_hits_cleared.len() as f64;}
                 let mut rc_end = rc_hits_cleared.iter().max_by(|a, b| ((a.query_e)).cmp(&((b.query_e)))).unwrap();
                 rc_ref_end = rc_end.ref_e; rc_query_end = rc_end.query_e;
             }
@@ -378,7 +389,7 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                 let query_hit_id_str = id_hashes.get(&prev_hit.query_id).unwrap();
                 let ref_hit_id_str = id_hashes.get(&prev_hit.ref_id).unwrap();
                 fwd_hits_cleared.push(prev_hit);
-                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, query_len, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
                 for i in 1..fwd_hits.len() {
                     let mut curr_hit = fwd_hits[i];
                     let mut curr_ref_s = curr_hit.ref_s;
@@ -389,7 +400,7 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                         continue;
                     }
                     else {
-                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
+                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, query_len, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
                         fwd_hits_cleared.push(curr_hit);
                         prev_ref_s = curr_ref_s;
                     }
@@ -397,46 +408,19 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                 let mut fwd_end = fwd_hits_cleared.iter().max_by(|a, b| ((a.query_e)).cmp(&((b.query_e)))).unwrap();
                 fwd_ref_end = fwd_end.ref_e; fwd_query_end = fwd_end.query_e;
                 fwd_counts = fwd_hits_cleared.iter().map(|hit| hit.hit_count).sum();
-                if rc_hits_cleared.len() != 0 && fwd_hits_cleared.len() != rc_hits_cleared.len() {
-                    if fwd_hits_cleared.len() > rc_hits_cleared.len() {
-                        let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: fwd_hits_cleared[0].query_s, query_e: fwd_query_end, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s, ref_e: fwd_ref_end, ref_last_hit_pos: 0, n_hits: fwd_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
+                if fwd_hits_cleared.len() != 0 {fwd_hit_avg = fwd_counts as f64 / fwd_hits_cleared.len() as f64;}
+                    if fwd_hit_avg > rc_hit_avg {
+                        let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: 0, query_e: query_len - 1, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s , ref_e: fwd_hits_cleared[0].ref_s  + query_len - 1, ref_last_hit_pos: 0, n_hits: fwd_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
                         //println!("{:?}", n);
                         
                         final_nams.push(n.clone());
                     }
                     else {
-                        let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: rc_hits_cleared[0].query_s, query_e: rc_query_end, query_last_hit_pos: 0, ref_s: rc_hits_cleared[0].ref_s, ref_e: rc_ref_end, ref_last_hit_pos: 0, n_hits: rc_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: true};
+                        let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: 0, query_e: query_len - 1, query_last_hit_pos: 0, ref_s: rc_hits_cleared[0].ref_s, ref_e: rc_hits_cleared[0].ref_s  + query_len - 1, ref_last_hit_pos: 0, n_hits: rc_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: true};
                         //println!("{:?}", n);
                         final_nams.push(n.clone());
                     }
-                }
-                else if fwd_counts > rc_counts {
-                    let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: fwd_hits_cleared[0].query_s, query_e: fwd_query_end, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s, ref_e: fwd_ref_end, ref_last_hit_pos: 0, n_hits: fwd_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
-                        //println!("{:?}", n);
-                        
-                        final_nams.push(n.clone());
-                }
-                else if rc_counts > fwd_counts {
-                    let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: rc_hits_cleared[0].query_s, query_e: rc_query_end, query_last_hit_pos: 0, ref_s: rc_hits_cleared[0].ref_s, ref_e: rc_ref_end, ref_last_hit_pos: 0, n_hits: rc_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: true};
-                        //println!("{:?}", n);
-                        final_nams.push(n.clone());
-                }
-                else if rc_hits_cleared.len() == 0 {
-                    let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: fwd_hits_cleared[0].query_s, query_e: fwd_query_end, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s, ref_e: fwd_ref_end, ref_last_hit_pos: 0, n_hits: fwd_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
-                        //println!("{:?}", n);
-                        
-                        final_nams.push(n.clone());
-                } 
             }
-            else {
-                if rc_hits_cleared.len() == 0 {continue;}
-                else {
-                    let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: rc_hits_cleared[0].query_s, query_e: rc_query_end, query_last_hit_pos: 0, ref_s: rc_hits_cleared[0].ref_s, ref_e: rc_ref_end, ref_last_hit_pos: 0, n_hits: rc_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: true};
-                        //println!("{:?}", n);
-                        final_nams.push(n.clone());
-                }
-            }
-            
            // println!("_____________________");
         }     
     }
@@ -479,7 +463,7 @@ pub fn output_paf(all_nams: &mut Vec<(Vec<NAM>, u64)>, l: usize, id_hashes: Read
         let ref_id = id_hashes.get(&n.ref_id).unwrap();
         let query_len = id_lengths.get(&n.query_id).unwrap();
         let ref_len = id_lengths.get(&n.ref_id).unwrap();
-        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, n.query_s, n.query_e, o, ref_id, ref_len, n.ref_s, n.ref_e, n.n_hits, n.ref_e - n.ref_s, "255");
+        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, n.query_s, n.query_e, o, ref_id, ref_len, n.ref_s, n.ref_e, n.n_hits, n.ref_e - n.ref_s + 1, "255");
         write!(paf_file, "{}", paf_line).expect("Error writing line.");
     }
 }
