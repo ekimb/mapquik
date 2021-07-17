@@ -190,7 +190,7 @@ pub fn get_ksyncmer(i: usize, k: usize, num_hashes: usize, ref_id: u64, string_h
         for j in i..i+k {
             let mut lmer_hash = string_hashes[j];
             ksyncmer_pos_end = pos_to_seq_coord[j];
-            ksyncmer_hash += lmer_hash / hash_frac;
+            ksyncmer_hash += lmer_hash;
             hash_frac += 1;
         }
         let mut ksyncmer_pos_start = pos_to_seq_coord[i];
@@ -327,7 +327,7 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
         for id in hit_ids.iter() {
             let query_id_str = id_hashes.get(&id).unwrap();
             let ref_id_str = id_hashes.get(&ref_id).unwrap();
-            //println!("_____________________{} to {}_____________\nRC", *query_id_str, *ref_id_str);
+            println!("_____________________{} to {}_____________\nRC", *query_id_str, *ref_id_str);
             let mut prev_q_start = 0;
             let mut mono_rc = true;
             let mut mono_fwd = true;
@@ -341,14 +341,13 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
             let mut rc_hits_cleared = Vec::<&Hit>::new();
             //rc_hits.retain(|x| x.hit_count > 1);
             if rc_hits.len() != 0 {
-                rc_counts = rc_hits.iter().map(|hit| hit.hit_count).sum();
                 rc_hits.sort_by(|a, b| ((a.query_s)).cmp(&((b.query_s))));
                 let mut prev_hit = rc_hits[0];
                 let mut prev_ref_s = prev_hit.ref_s;
                 let query_hit_id_str = id_hashes.get(&prev_hit.query_id).unwrap();
                 let ref_hit_id_str = id_hashes.get(&prev_hit.ref_id).unwrap();
                 rc_hits_cleared.push(prev_hit);
-                //println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
                 for i in 1..rc_hits.len() {
                     let mut curr_hit = rc_hits[i];
                     let mut curr_ref_s = curr_hit.ref_s;
@@ -359,27 +358,27 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                         continue;
                     }
                     else {
-                        //println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
+                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
                         rc_hits_cleared.push(curr_hit);
                         prev_ref_s = curr_ref_s;
                     }
                 }
+                rc_counts = rc_hits_cleared.iter().map(|hit| hit.hit_count).sum();
                 let mut rc_end = rc_hits_cleared.iter().max_by(|a, b| ((a.query_e)).cmp(&((b.query_e)))).unwrap();
                 rc_ref_end = rc_end.ref_e; rc_query_end = rc_end.query_e;
             }
             let mut fwd_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == false && hit.query_id == *id).collect();
             let mut fwd_hits_cleared = Vec::<&Hit>::new();
             //fwd_hits.retain(|x| x.hit_count > 1);
-            //println!("FW");
+            println!("FW");
             if fwd_hits.len() != 0 {
-                fwd_counts = fwd_hits.iter().map(|hit| hit.hit_count).sum();
                 fwd_hits.sort_by(|a, b| ((a.query_s)).cmp(&((b.query_s))));
                 let mut prev_hit = fwd_hits[0];
                 let mut prev_ref_s = fwd_hits[0].ref_s;
                 let query_hit_id_str = id_hashes.get(&prev_hit.query_id).unwrap();
                 let ref_hit_id_str = id_hashes.get(&prev_hit.ref_id).unwrap();
                 fwd_hits_cleared.push(prev_hit);
-                //println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
                 for i in 1..fwd_hits.len() {
                     let mut curr_hit = fwd_hits[i];
                     let mut curr_ref_s = curr_hit.ref_s;
@@ -390,14 +389,15 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                         continue;
                     }
                     else {
-                        //println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
+                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
                         fwd_hits_cleared.push(curr_hit);
                         prev_ref_s = curr_ref_s;
                     }
                 }
                 let mut fwd_end = fwd_hits_cleared.iter().max_by(|a, b| ((a.query_e)).cmp(&((b.query_e)))).unwrap();
                 fwd_ref_end = fwd_end.ref_e; fwd_query_end = fwd_end.query_e;
-                if rc_hits_cleared.len() != 0 {
+                fwd_counts = fwd_hits_cleared.iter().map(|hit| hit.hit_count).sum();
+                if rc_hits_cleared.len() != 0 && fwd_hits_cleared.len() != rc_hits_cleared.len() {
                     if fwd_hits_cleared.len() > rc_hits_cleared.len() {
                         let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: fwd_hits_cleared[0].query_s, query_e: fwd_query_end, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s, ref_e: fwd_ref_end, ref_last_hit_pos: 0, n_hits: fwd_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
                         //println!("{:?}", n);
@@ -410,12 +410,23 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: 
                         final_nams.push(n.clone());
                     }
                 }
-                else {
+                else if fwd_counts > rc_counts {
                     let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: fwd_hits_cleared[0].query_s, query_e: fwd_query_end, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s, ref_e: fwd_ref_end, ref_last_hit_pos: 0, n_hits: fwd_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
                         //println!("{:?}", n);
                         
                         final_nams.push(n.clone());
                 }
+                else if rc_counts > fwd_counts {
+                    let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: rc_hits_cleared[0].query_s, query_e: rc_query_end, query_last_hit_pos: 0, ref_s: rc_hits_cleared[0].ref_s, ref_e: rc_ref_end, ref_last_hit_pos: 0, n_hits: rc_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: true};
+                        //println!("{:?}", n);
+                        final_nams.push(n.clone());
+                }
+                else if rc_hits_cleared.len() == 0 {
+                    let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: fwd_hits_cleared[0].query_s, query_e: fwd_query_end, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s, ref_e: fwd_ref_end, ref_last_hit_pos: 0, n_hits: fwd_counts, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
+                        //println!("{:?}", n);
+                        
+                        final_nams.push(n.clone());
+                } 
             }
             else {
                 if rc_hits_cleared.len() == 0 {continue;}
