@@ -1,15 +1,17 @@
 use std::collections::VecDeque;
 use crate::DashMap;
 use crate::File;
+use crate::hash_id;
 use dashmap::ReadOnlyView;
 use std::io::Write;
 use std::cmp::Ordering;
 
 use super::Params;
-use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookup};
+use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookupMod};
 
 #[derive(Clone, Debug)]
 pub struct Hit {
+    query_id: u64,
     ref_id: u64,
     query_s: usize,
     query_e: usize,
@@ -17,9 +19,12 @@ pub struct Hit {
     ref_e: usize,
     hit_count: usize,
     is_rc: bool,
+    query_span: usize,
+    ref_span: usize,
 }
 #[derive(Clone, Debug)]
 pub struct NAM {
+    query_id: u64,
     ref_id: u64,
     query_s: usize,
     query_e: usize,
@@ -27,7 +32,7 @@ pub struct NAM {
     ref_s: usize,
     ref_e: usize,
     ref_last_hit_pos: usize,
-    n_hits: usize,
+    score: usize,
     previous_query_start: usize,
     previous_ref_start: usize,
     is_rc: bool,
@@ -183,7 +188,7 @@ pub fn extract_syncmers(seq: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
 
 } 
 
-pub fn extend_kstrobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: usize, w_end: usize, q: u64) -> (i32, u64) {
+/*pub fn extend_kstrobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: usize, w_end: usize, q: u64) -> (i32, u64) {
     let mut min_val = u64::max_value();
     let mut strobe_pos_next = -1;
     let mut strobe_hashval_next = u64::max_value();
@@ -196,7 +201,7 @@ pub fn extend_kstrobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: us
         }
     }
     return (strobe_pos_next, strobe_hashval_next);
-}
+}*/
 
 /*get_kstrobe
 while iter != k {
@@ -228,7 +233,153 @@ while iter != k {
     let mut s = (hash_randstrobe, ref_id, seq_pos_strobe1, seq_pos_strobe2, reverse);
 }
 */
-pub fn get_kstrobe(k: usize, i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(u64, u64, usize, usize, bool)> {
+
+pub fn get_next_strobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: usize, w_end: usize, q: u64) -> (i32, u64) {
+    let mut min_val = u64::max_value();
+    let mut strobe_pos_next = -1;
+    let mut strobe_hashval_next = u64::max_value();
+    for i in w_start..w_end + 1 {
+        let res : u64 = (strobe_hashval + string_hashes[i]) & q;
+        if res < min_val {
+            min_val = res;
+            strobe_pos_next = i as i32;
+            strobe_hashval_next = string_hashes[i];
+        }
+    }
+    return (strobe_pos_next, strobe_hashval_next);
+}
+
+pub fn get_randstrobe(i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(u64, u64, usize, usize, bool)> {
+    let mut strobe_pos_next;
+    let mut strobe_hashval_next;
+    if i + wmax < num_hashes {
+        let mut w_start = i + wmin;
+        let mut w_end = i + wmax;
+        let mut strobe_hash = string_hashes[i];
+        let tuple = get_next_strobe(string_hashes, strobe_hash, w_start, w_end, q);
+        strobe_pos_next = tuple.0; strobe_hashval_next = tuple.1;
+    }
+    else if (i + wmin + 1 < num_hashes) && (num_hashes <= i + wmax) {
+        let mut w_start = i + wmin;
+        let mut w_end = num_hashes - 1;
+        let mut strobe_hash = string_hashes[i];
+        let tuple = get_next_strobe(string_hashes, strobe_hash, w_start, w_end, q);
+        strobe_pos_next = tuple.0; strobe_hashval_next = tuple.1;
+    }
+    else {return None;}
+    let mut hash_randstrobe = string_hashes[i]/2 + strobe_hashval_next/3;
+    let mut seq_pos_strobe1 = pos_to_seq_coord[i];
+    let mut seq_pos_strobe2 = pos_to_seq_coord[strobe_pos_next as usize];
+    let mut s = (hash_randstrobe, ref_id, seq_pos_strobe1, seq_pos_strobe2, reverse);
+    return Some(s);
+}
+
+pub fn seq_to_kstrobes_read(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
+    let k = params.k;
+    let l = params.l;
+    let s = params.s;
+    let wmin = params.wmin;
+    let wmax = params.wmax;
+    let mut kstrobes = MersVectorRead::new();
+    let read_length = seq.len();
+    if read_length < wmax {return kstrobes;}
+    let kmask : u64 = ((1 as u64) << 2*l) - 1;
+    let smask : u64 = ((1 as u64) << 2*s) - 1;
+    let q = 2_u64.pow(16) - 1;
+    let mut string_hashes = Vec::<u64>::new();
+    let mut pos_to_seq_coord = Vec::<usize>::new();
+    let t = 3;
+    let (mut string_hashes, mut pos_to_seq_coord) = extract_syncmers(seq, params);
+    let num_hashes = string_hashes.len();
+    for i in 0..num_hashes + 1 {
+        let mut kstrobe_hash = Vec::<u64>::new();
+        let mut kstrobe_id : u64 = 0;
+        let mut kstrobe_start = 0;
+        let mut kstrobe_end = 0;
+        let mut kstrobe_reverse = false;
+        for j in i..i+k {
+            let mut s = get_randstrobe(j, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, false);
+            if s.is_none() {break;}
+            let s_unw = s.unwrap();
+            kstrobe_hash.push(s_unw.0);
+            kstrobe_id = s_unw.1;
+            kstrobe_reverse = s_unw.4;
+            if j == i {kstrobe_start = s_unw.2;}
+            if j == i + k - 1 {kstrobe_end = s_unw.3;}
+        }
+        let mut kstrobe_u64_hash = hash_id(&kstrobe_hash);
+        let kstrobe = (kstrobe_u64_hash, kstrobe_id, kstrobe_start, kstrobe_end, kstrobe_reverse);
+        if kstrobe_end != 0 {kstrobes.push(kstrobe)};
+    }
+    string_hashes.reverse();
+    pos_to_seq_coord.reverse();
+    for i in 0..num_hashes {
+        pos_to_seq_coord[i] = read_length - pos_to_seq_coord[i] - k;
+    }
+    for i in 0..num_hashes + 1 {
+        let mut kstrobe_hash = Vec::<u64>::new();
+        let mut kstrobe_id : u64 = 0;
+        let mut kstrobe_start = 0;
+        let mut kstrobe_end = 0;
+        let mut kstrobe_reverse = false;
+        for j in i..i+k {
+            let mut s = get_randstrobe(j, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, true);
+            if s.is_none() {break;}
+            let s_unw = s.unwrap();
+            kstrobe_hash.push(s_unw.0);
+            kstrobe_id = s_unw.1;
+            kstrobe_reverse = s_unw.4;
+            if j == i {kstrobe_start = s_unw.2;}
+            if j == i + k - 1 {kstrobe_end = s_unw.3;}
+        }
+        let mut kstrobe_u64_hash = hash_id(&kstrobe_hash);
+        let kstrobe = (kstrobe_u64_hash, kstrobe_id, kstrobe_start, kstrobe_end, kstrobe_reverse);
+        if kstrobe_end != 0 {kstrobes.push(kstrobe)};
+    }
+    return kstrobes;
+}
+
+pub fn seq_to_kstrobes_ref(seq: &[u8], id: u64, params: &Params) -> MersVectorRead {
+    let k = params.k;
+    let l = params.l;
+    let s = params.s;
+    let wmin = params.wmin;
+    let wmax = params.wmax;
+    let mut kstrobes = MersVectorRead::new();
+    let read_length = seq.len();
+    if read_length < wmax {return kstrobes;}
+    let lmask : u64 = ((1 as u64) << 2*l) - 1;
+    let smask : u64 = ((1 as u64) << 2*s) - 1;
+    let q = 2_u64.pow(16) - 1;
+    let mut string_hashes = Vec::<u64>::new();
+    let mut pos_to_seq_coord = Vec::<usize>::new();
+    let t = 3;
+    let (mut string_hashes, mut pos_to_seq_coord) = extract_syncmers(seq, params);
+    let num_hashes = string_hashes.len();
+    for i in 0..num_hashes + 1 {
+        let mut kstrobe_hash = Vec::<u64>::new();
+        let mut kstrobe_id : u64 = 0;
+        let mut kstrobe_start = 0;
+        let mut kstrobe_end = 0;
+        let mut kstrobe_reverse = false;
+        for j in i..i+k {
+            let mut s = get_randstrobe(j, wmin, wmax, num_hashes, id, &string_hashes, &pos_to_seq_coord, q, false);
+            if s.is_none() {break;}
+            let s_unw = s.unwrap();
+            kstrobe_hash.push(s_unw.0);
+            kstrobe_id = s_unw.1;
+            kstrobe_reverse = s_unw.4;
+            if j == i {kstrobe_start = s_unw.2;}
+            if j == i + k - 1 {kstrobe_end = s_unw.3;}
+        }
+        let mut kstrobe_u64_hash = hash_id(&kstrobe_hash);
+        let kstrobe = (kstrobe_u64_hash, kstrobe_id, kstrobe_start, kstrobe_end, kstrobe_reverse);
+        if kstrobe_end != 0 {kstrobes.push(kstrobe)};
+    }
+    return kstrobes;
+}
+
+/*pub fn get_kstrobe(k: usize, i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(u64, u64, usize, usize, bool)> {
     let mut iterations = 1;
     let mut kstrobe_hashval = 0;
     let res = get_kstrobe_util(k, 1, i, wmin, wmax, num_hashes, ref_id, string_hashes, pos_to_seq_coord, q, reverse);
@@ -242,9 +393,9 @@ pub fn get_kstrobe(k: usize, i: usize, wmin: usize, wmax: usize, num_hashes: usi
         if k != k_fin {return None;}
         else{return Some(s);}
     }
-}
+}*/
 
-pub fn get_kstrobe_util(k_bound: usize, curr_k: usize, i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(usize, usize, u64)> {
+/*pub fn get_kstrobe_util(k_bound: usize, curr_k: usize, i: usize, wmin: usize, wmax: usize, num_hashes: usize, ref_id: u64, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64, reverse: bool) -> Option<(usize, usize, u64)> {
         if i + wmax < num_hashes {
             let mut strobe_hash = string_hashes[i];
             let mut w_start = i + wmin;
@@ -322,23 +473,23 @@ pub fn seq_to_kstrobes_ref(seq: &[u8], id: u64, params: &Params) -> MersVectorRe
         kstrobes.push(s.unwrap());
     }
     return kstrobes;
-}
+}*/
 
-pub fn remove_kmer_hash_from_flat_vector(flat_vector: &MersVectorRead) -> MersVectorReduced {
+/*pub fn remove_kmer_hash_from_flat_vector(flat_vector: &MersVectorRead) -> MersVectorReduced {
     let mut mers_vector_reduced = MersVectorReduced::new();
     for entry in flat_vector.iter() {
         let s = (entry.1, entry.2, entry.3);
         mers_vector_reduced.push(s);
     }
     return mers_vector_reduced;
-}
+}*/
 
 pub fn index(ref_seq: &[u8], ref_id: u64, params: &Params, read: bool) -> MersVectorRead {
     if read {return seq_to_kstrobes_read(ref_seq, ref_id, params);}
     else {return seq_to_kstrobes_ref(ref_seq, ref_id, params);}
 }
 
-pub fn find_nams(query_mers: &MersVectorRead, ref_mers: &MersVectorReduced, mers_index: &KmerLookup, k: usize, read: &[u8], hit_upper_window_lim: usize, filter_cutoff: usize) -> Vec<NAM> {
+/*pub fn find_nams(query_mers: &MersVectorRead, ref_mers: &MersVectorReduced, mers_index: &KmerLookup, k: usize, read: &[u8], hit_upper_window_lim: usize, filter_cutoff: usize) -> Vec<NAM> {
     let mut hits_per_ref = DashMap::<u64, Vec<Hit>>::new();
     let mut hit_count_reduced = 0;
     let mut hit_count_all = 0;
@@ -425,20 +576,231 @@ pub fn find_nams(query_mers: &MersVectorRead, ref_mers: &MersVectorReduced, mers
     }
     //println!("NAMs found:\t{}", final_nams.len());
     return final_nams;
+}*/
+
+pub fn find_nams(query_mers: &MersVectorRead, ref_index: &PosIndex, mers_index: &KmerLookupMod, hash_counts: &DashMap<u64, usize>, l: usize, read: &[u8], filter_cutoff: usize, k: usize, id_hashes: &DashMap<u64, String>, id_lengths: &DashMap<u64, usize>) -> Vec<NAM> {
+    let mut hits_per_ref = DashMap::<u64, Vec<Hit>>::new();
+    let mut hit_count_reduced = 0;
+    let mut hit_count_all = 0;
+    let read_length = read.len();
+    let mut i = 0;
+    let mut prev_hit_end = 0;
+    let mut prev_rc = 2;
+    while i < query_mers.len() {
+        let q = query_mers[i];
+        let mut curr_rc = 0;
+        if q.4 == true {curr_rc = 1;}
+        let mut query_new_start = 0;
+        if prev_rc == curr_rc {query_new_start = prev_hit_end + 1;}
+        else {prev_hit_end = 0;}
+        let mut h = Hit {query_id: q.1, ref_id: 0, query_s: query_new_start, query_e: q.3, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4, query_span: 0, ref_span: 0};
+        let mer_hashv = q.0;
+        let mut mer_entry = mers_index.get_mut(&mer_hashv);
+        let mut extend_offset = 0;
+        if mer_entry.is_some() {
+            h.hit_count = k - 1;
+            let mer = mer_entry.unwrap();
+            let count = hash_counts.get(&q.0).unwrap();
+            let ref_id = mer.0;
+            let offset = mer.1;
+            let ref_mers = ref_index.get(&ref_id).unwrap();
+            if *count == 1 {//filter_cutoff || filter_cutoff == 0 {
+                let mut j = offset;
+                let r = ref_mers[j];
+                if prev_hit_end != 0 {h.ref_s = r.2 - (q.2 - query_new_start);} else {h.ref_s = r.2;}
+                //println!("Query: {:?}\tRef: {:?}",  q, r);
+                h.ref_id = ref_id;
+                while query_mers[i+extend_offset].0 == ref_mers[j+extend_offset].0 {
+                    let r_next = ref_mers[j+extend_offset];
+                    let q_next = query_mers[i+extend_offset];
+                    h.query_e = q_next.3;
+                    h.ref_e = r_next.3;
+                    h.hit_count += 1;
+                    if prev_hit_end == 0 {h.query_span = h.query_e - q.2 + 1;}
+                    else {h.query_span = h.query_e - h.query_s + 1;}
+                    h.ref_span = h.ref_e - h.ref_s + 1;
+                    if h.is_rc == true {prev_rc = 1;} else {prev_rc = 0;}
+                    //println!("Extend: {}\tQuery next: {}\tRef next: {}\tQuery end: {}\tRef end: {}",  extend_offset, q_next.0, r_next.0, h.query_e, h.ref_e);
+                    extend_offset += 1;
+                    if i + extend_offset == query_mers.len() {break;}
+                    if j + extend_offset == ref_mers.len() {break;}
+                }
+                let ref_entry = hits_per_ref.get_mut(&r.1);
+                if ref_entry.is_some() {
+                    ref_entry.unwrap().push(h.clone());
+                }
+                else {hits_per_ref.insert(ref_id, vec![h.clone()]);}
+                hit_count_all += 1;
+                prev_hit_end = h.query_e;
+                    /*let r = ref_mers[j];
+                    let ref_id = r.1;
+                    let ref_s = r.2;
+                    let ref_e = r.3 + l;
+                    h.ref_id = ref_id;
+                    h.ref_s = ref_s;
+                    h.ref_e = ref_e;
+                    h.hit_count = count;*/
+                    
+                //}
+           }
+        }
+        if extend_offset == 0 {i += 1;} else {i += extend_offset;}
+    }
+    let mut final_nams = Vec::<NAM>::new();
+    let mut prev_key : u64 = 0;
+    for (key, val) in hits_per_ref.into_iter() {
+        let ref_id = key;
+        let hits = val;
+        let mut hit_ids : Vec<u64> = hits.iter().map(|hit| hit.query_id).collect();
+        hit_ids.sort_unstable();
+        hit_ids.dedup();
+        for id in hit_ids.iter() {
+            println!("ID: {}", id);
+            let query_id_str = id_hashes.get(&id).unwrap();
+            let query_len = *id_lengths.get(&id).unwrap();
+            let ref_id_str = id_hashes.get(&ref_id).unwrap();
+            println!("_____________________{} to {}_____________\nRC", *query_id_str, *ref_id_str);
+            let mut prev_q_start = 0;
+            let mut rc_mono = true;
+            let mut fwd_hit_avg = 0.0;
+            let mut rc_hit_avg = 0.0;
+            let mut fwd_mono = true;
+            let mut write_fwd = false;
+            let mut write_rc = false;
+            let mut fwd_counts = 0;
+            let mut rc_counts = 0;
+            let mut rc_ref_end = 0;
+            let mut rc_query_end = 0;
+            let mut fwd_ref_end = 0;
+            let mut fwd_query_end = 0;
+            let mut rc_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == true && hit.query_id == *id).collect();
+            let mut rc_hits_cleared = Vec::<&Hit>::new();
+            let mut fwd_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == false && hit.query_id == *id).collect();
+            let mut fwd_hits_cleared = Vec::<&Hit>::new();
+            //rc_hits.retain(|x| x.hit_count > 1);
+            if rc_hits.len() != 0 {
+                rc_hits.sort_by(|a, b| ((a.query_s)).cmp(&((b.query_s))));
+                let mut prev_hit = rc_hits[0];
+                let mut prev_ref_s = prev_hit.ref_s;
+                let query_hit_id_str = id_hashes.get(&prev_hit.query_id).unwrap();
+                let ref_hit_id_str = id_hashes.get(&prev_hit.ref_id).unwrap();
+                rc_hits_cleared.push(prev_hit);
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_span, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_span, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
+                for i in 1..rc_hits.len() {
+                    let mut curr_hit = rc_hits[i];
+                    let mut curr_ref_s = curr_hit.ref_s;
+                    let query_hit_len = id_lengths.get(&curr_hit.query_id).unwrap();
+                    let query_hit_id_str = id_hashes.get(&curr_hit.query_id).unwrap();
+                    let ref_hit_id_str = id_hashes.get(&curr_hit.ref_id).unwrap();
+                    if curr_ref_s + l - 1 < prev_ref_s || curr_ref_s > prev_ref_s + *query_hit_len {
+                        rc_mono = false;
+                    }
+                    else {
+                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_span, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_span, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
+                        rc_hits_cleared.push(curr_hit);
+                        prev_ref_s = curr_ref_s;
+                    }
+                }
+            }
+            
+            //fwd_hits.retain(|x| x.hit_count > 1);
+            println!("FW");
+            if fwd_hits.len() != 0 {
+                fwd_hits.sort_by(|a, b| ((a.query_s)).cmp(&((b.query_s))));
+                let mut prev_hit = fwd_hits[0];
+                let mut prev_ref_s = fwd_hits[0].ref_s;
+                let query_hit_id_str = id_hashes.get(&prev_hit.query_id).unwrap();
+                let ref_hit_id_str = id_hashes.get(&prev_hit.ref_id).unwrap();
+                fwd_hits_cleared.push(prev_hit);
+                println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, prev_hit.query_span, prev_hit.query_s, prev_hit.query_e, *ref_hit_id_str, prev_hit.ref_span, prev_hit.ref_s, prev_hit.ref_e, prev_hit.hit_count, prev_hit.is_rc);
+                for i in 1..fwd_hits.len() {
+                    let mut curr_hit = fwd_hits[i];
+                    let mut curr_ref_s = curr_hit.ref_s;
+                    let query_hit_len = id_lengths.get(&curr_hit.query_id).unwrap();
+                    let query_hit_id_str = id_hashes.get(&curr_hit.query_id).unwrap();
+                    let ref_hit_id_str = id_hashes.get(&curr_hit.ref_id).unwrap();
+                    if curr_ref_s + l - 1 < prev_ref_s || curr_ref_s > prev_ref_s + *query_hit_len {
+                        fwd_mono = false;
+                    }
+                    else {
+                        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", *query_hit_id_str, curr_hit.query_span, curr_hit.query_s, curr_hit.query_e, *ref_hit_id_str, curr_hit.ref_span, curr_hit.ref_s, curr_hit.ref_e, curr_hit.hit_count, curr_hit.is_rc);
+                        fwd_hits_cleared.push(curr_hit);
+                        prev_ref_s = curr_ref_s;
+                    }
+                }
+            }
+            /*if fwd_hits_cleared.len() != 0 {
+                fwd_counts = fwd_hits_cleared.iter().map(|hit| hit.hit_count).sum();
+                fwd_hit_avg = fwd_counts as f64 / fwd_hits_cleared.len() as f64;
+            }
+            if rc_hits_cleared.len() != 0 {
+                rc_counts = rc_hits_cleared.iter().map(|hit| hit.hit_count).sum();
+                rc_hit_avg = rc_counts as f64 / rc_hits_cleared.len() as f64;
+            }*/
+            let mut fwd_score : usize = 0;
+            let mut rc_score : usize = 0;
+            if fwd_hits_cleared.len() != 0 {fwd_score = fwd_hits_cleared.iter().map(|hit| hit.hit_count * hit.query_span).sum();}
+            if rc_hits_cleared.len() != 0 {rc_score = rc_hits_cleared.iter().map(|hit| hit.hit_count * hit.query_span).sum();}
+            println!("FWD score: {} RC score: {}", fwd_score, rc_score);
+            if fwd_score > rc_score {write_fwd = true; write_rc = false;}
+            else if rc_score > fwd_score {write_fwd = false; write_rc = true;}
+            else {continue;}
+            if fwd_mono == false {write_fwd = false;}
+            if rc_mono == false {write_rc = false;}
+            if write_fwd == true {
+                let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: 0, query_e: query_len  - 1, query_last_hit_pos: 0, ref_s: fwd_hits_cleared[0].ref_s , ref_e: fwd_hits_cleared[0].ref_s  + query_len - 1, ref_last_hit_pos: 0, score: fwd_score, previous_query_start: 0, previous_ref_start: 0, is_rc: false};
+                    //println!("{:?}", n);
+                    final_nams.push(n.clone());
+            }
+            else if write_rc == true {
+                let mut n = NAM {query_id: *id, ref_id: ref_id, query_s: 0, query_e: query_len - 1, query_last_hit_pos: 0, ref_s: rc_hits_cleared[0].ref_s, ref_e: rc_hits_cleared[0].ref_s  + query_len - 1, ref_last_hit_pos: 0, score: rc_score, previous_query_start: 0, previous_ref_start: 0, is_rc: true};
+                //println!("{:?}", n);
+                final_nams.push(n.clone());
+            }
+            else {continue;}
+              // println!("_____________________");
+        }     
+    }
+    //println!("NAMs found:\t{}", final_nams.len());
+    return final_nams;
 }
 
-pub fn output_paf(all_nams: &mut Vec<(Vec<NAM>, u64)>, k: usize, id_hashes: ReadOnlyView<u64, String>, id_lengths: ReadOnlyView<u64, usize>, paf_file: &mut File) {
+pub fn output_paf(all_nams: &mut Vec<(Vec<NAM>, u64)>, l: usize, id_hashes: ReadOnlyView<u64, String>, id_lengths: ReadOnlyView<u64, usize>, paf_file: &mut File, k: usize) {
+    let mut mapped_ref_nams = DashMap::<(u64, usize, usize), Vec<NAM>>::new();
     for (nams, id) in all_nams.iter_mut() {
+        for nam in nams.iter() {
+            println!("{}\t{:?}", id, nam);
+        }
         if nams.len() == 0 {continue;}
-        let n = nams.iter().max_by(|a, b| (a.n_hits * (a.query_e - a.query_s)).cmp(&(b.n_hits * (b.query_e - b.query_s)))).unwrap();
+        nams.retain(|x| x.score > k);
+        let max_nam = nams.iter().max_by(|a, b| ((a.score)).cmp(&((b.score))));
+        if max_nam.is_none() {continue;}
+        let n = max_nam.unwrap();
+        let ref_entry = mapped_ref_nams.get_mut(&(n.ref_id, n.ref_s, n.ref_e));
+        if ref_entry.is_some() {
+            ref_entry.unwrap().push(n.clone());
+        }
+        else {mapped_ref_nams.insert((n.ref_id, n.ref_s, n.ref_e), vec![n.clone()]);} 
+        
+    }
+    for mapped_nams in mapped_ref_nams.iter() {
+        if mapped_nams.len() != 1 {
+           /* for nam in mapped_nams.iter() {
+                println!("Ref:\t{:?}\t{:?}", mapped_nams.key(), nam);
+            }*/
+        }
+        let max_hit_nam = mapped_nams.iter().max_by(|a, b| a.score.cmp(&(b.score)));
+        if max_hit_nam.is_none() {continue;}
+        let n = max_hit_nam.unwrap();
+        //let n = nams.iter().max_by(|a, b| (a.n_hits).cmp(&(b.n_hits))).unwrap();
         let mut o = String::new();
         if n.is_rc {o = "-".to_string();}
         else {o = "+".to_string();}
-        let query_id = id_hashes.get(&id).unwrap();
+        let query_id = id_hashes.get(&n.query_id).unwrap();
         let ref_id = id_hashes.get(&n.ref_id).unwrap();
-        let query_len = id_lengths.get(&id).unwrap();
+        let query_len = id_lengths.get(&n.query_id).unwrap();
         let ref_len = id_lengths.get(&n.ref_id).unwrap();
-        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, n.query_s, n.query_last_hit_pos + k, o, ref_id, ref_len, n.ref_s, n.ref_last_hit_pos + k, n.n_hits, n.ref_last_hit_pos + k - n.ref_s, "255");
+        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, n.query_s, n.query_e, o, ref_id, ref_len, n.ref_s, n.ref_e, n.score, n.ref_e - n.ref_s + 1, "255");
         write!(paf_file, "{}", paf_line).expect("Error writing line.");
     }
 }

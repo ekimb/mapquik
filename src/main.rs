@@ -62,11 +62,15 @@ mod kstrobes;
 //mod presimp;
 use std::env;
 pub type MersVectorRead = Vec<(u64, u64, usize, usize, bool)>;
+pub type MersVectorReadMod = Vec<(Vec<u64>, u64, usize, usize, bool)>;
 pub type MersVector = Vec<(u64, u64, usize, usize)>;
 pub type MersVectorReduced = Vec<(u64, usize, usize)>;
 pub type KmerLookup = DashMap<u64, (usize, usize)>;
 pub type KmerLookupMod = DashMap<u64, (u64, usize)>;
+pub type KmerLookupModMod = DashMap<Vec<u64>, (u64, usize)>;
 pub type PosIndex = DashMap<u64, MersVectorRead>;
+pub type PosIndexMod = DashMap<u64, MersVectorReadMod>;
+
 
 const revcomp_aware : bool = true; // shouldn't be set to false except for strand-directed data or for debugging
 type Kmer = kmer_vec::KmerVec;

@@ -28,7 +28,7 @@ use super::kminmers;
 use super::kminmers::{NAM as KminmerNAM};
 use super::ksyncmers;
 use super::ksyncmers::{NAM as KsyncmerNAM};
-use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookup, KmerLookupMod};
+use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookup, KmerLookupMod, PosIndexMod};
 use std::path::PathBuf;
 use dashmap::DashSet;
 use super::Params;
@@ -37,11 +37,11 @@ use crate::get_reader;
 pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
     let mut id_hashes : Arc<DashMap<u64, String>> = Arc::new(DashMap::new());
     let mut id_lengths : Arc<DashMap<u64, usize>> = Arc::new(DashMap::new());
+    let mut hash_counts : Arc<DashMap<u64, usize>> = Arc::new(DashMap::new());
     let mut tmp_index : Arc<PosIndex> = Arc::new(PosIndex::new());
-    let mut mers_index : Arc<KmerLookup> = Arc::new(KmerLookup::new());
+    let mut mers_index : Arc<KmerLookupMod> = Arc::new(KmerLookupMod::new());
     let mut filter_cutoff : Arc<DashMap<usize, usize>> = Arc::new(DashMap::new());
     let mut all_nams = Vec::<(Vec<KStrobeNAM>, u64)>::new();
-    let mut all_mers_vector : Arc<DashMap<usize, MersVectorReduced>> = Arc::new(DashMap::new());
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
     let mut paf_file = match File::create(&path) {
         Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
@@ -84,10 +84,8 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
         //let seq = std::str::from_utf8(seq_str).unwrap(); // see https://docs.rs/seq_io/0.4.0-alpha.0/seq_io/fasta/index.html
         let seq_id_hash = hash_id(&seq_id);
         let mut kstrobes = index_kstrobes(seq_id_hash, seq_id, seq_str, params, true);
-        let fc = *filter_cutoff.get(&0).unwrap();
-        let all_mers = all_mers_vector.get(&1).unwrap();
-        let hit_upper_window_lim = (params.l-params.s+1)*params.wmax;
-        output = kstrobes::find_nams(&kstrobes, &all_mers, &mers_index, params.l, seq_str, hit_upper_window_lim, fc);
+        let fc = 0; //*filter_cutoff.get(&0).unwrap();
+        output = kstrobes::find_nams(&kstrobes, &tmp_index, &mers_index, &hash_counts, params.l, seq_str, fc, params.k, &id_hashes, &id_lengths);
         if output.len() > 0 {
             return Some((output, seq_id_hash))
         }
@@ -131,7 +129,22 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
         return (flat_vector, unique_elements);
     };
 
-    let mut index_vector = |flat_vector: &MersVectorRead, f: f64| -> usize {
+    let mut index_vector = |tmp_index: &PosIndex| {
+        for entry in tmp_index.into_iter() {
+            let ref_id = entry.key();
+            let flat_vector = entry.value();
+            println!("Flat vector size: {}", flat_vector.len());
+            let mut offset = 0;
+            for entry in flat_vector.iter() {
+                let curr_k = entry.0;
+                let mut s = (*ref_id, offset);
+                mers_index.insert(curr_k, s);
+                offset += 1;      
+            }
+        }
+    };
+
+    let mut count_vector = |flat_vector: &MersVectorRead, f: f64| -> usize {
         println!("Flat vector size: {}", flat_vector.len());
         let mut offset = 0;
         let mut prev_offset = 0;
@@ -139,7 +152,7 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
         let mut tot_occur_once = 0;
         let mut tot_high_ab = 0;
         let mut tot_mid_ab = 0;
-        let mut kstrobemer_counts = Vec::<usize>::new();
+        let mut kstrobes_counts = Vec::<usize>::new();
         let mut t = flat_vector[0];
         let mut prev_k = t.0;
         let mut curr_k = 0;
@@ -150,66 +163,53 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
                 if count == 1 {tot_occur_once += 1;}
                 else if count > 100 {tot_high_ab += 1;}
                 else {tot_mid_ab += 1;}
-                kstrobemer_counts.push(count);
-                let mut s = (prev_offset, count);
-                mers_index.insert(prev_k, s);
+                kstrobes_counts.push(count);
+                hash_counts.insert(prev_k, count);
                 count = 1;
                 prev_k = curr_k;
                 prev_offset = offset;
             }
             offset += 1;      
         }
-        let mut s = (prev_offset, count);
-        mers_index.insert(curr_k, s);
         if count == 1 {tot_occur_once += 1;}
         else if count > 100 {tot_high_ab += 1;}
         else {tot_mid_ab += 1;}
-        kstrobemer_counts.push(count);
+        kstrobes_counts.push(count);
+        hash_counts.insert(curr_k, count);
         println!("Total k-strobemers count:\t{}", offset);
         println!("Total k-strobemers unique:\t{}", tot_occur_once);
         println!("Total k-strobemers high-ab:\t{}", tot_high_ab);
         println!("Total k-strobemers mid-ab:\t{}", tot_mid_ab);
-        println!("Total distinct k-strobemers:\t{}", mers_index.len());
-        if tot_high_ab >= 1 {println!("Ratio distinct/hi-ab:\t{}", mers_index.len()/tot_high_ab);}
-        if tot_mid_ab >= 1 {println!("Ratio distinct/non-distinct:\t{}", mers_index.len()/(tot_high_ab+tot_mid_ab));}
         if params.f != 0.0 {
-            let mut index_cutoff = (kstrobemer_counts.len() as f64 * f) as usize;
+            kstrobes_counts.sort_unstable();
+            kstrobes_counts.reverse();
+            let mut index_cutoff = (kstrobes_counts.len() as f64 * f) as usize;
             println!("Filtered cutoff index:\t{}", index_cutoff);
-            let mut filter_cutoff = kstrobemer_counts[index_cutoff];
+            let mut filter_cutoff = kstrobes_counts[index_cutoff];
             println!("Filtered cutoff count:\t{}", filter_cutoff);
             return filter_cutoff;
         }
         else {return 0;}
     };
-    let mut remove_kmer_hash_from_flat_vector = |flat_vector: &MersVectorRead| -> MersVectorReduced {
-        let mut mers_vector_reduced = MersVectorReduced::new();
-        for entry in flat_vector.iter() {
-            let s = (entry.1, entry.2, entry.3);
-            mers_vector_reduced.push(s);
-        }
-        return mers_vector_reduced;
-    };
     let buf = get_reader(&ref_filename);
     if ref_fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
         read_process_fasta_records(reader, threads as u32, queue_len, ref_process_read_fasta_kstrobe, |record, found| {ref_main_thread_kstrobe(found)});
-        let (mut all_mers_vector_tmp, unique_elements) = construct_flat_vector();
+        let (mut flat_vector, unique_elements) = construct_flat_vector();
         println!("Unique k-strobemers:\t{}", unique_elements);
         let f = params.f;
-        filter_cutoff.insert(0, index_vector(&all_mers_vector_tmp, f));
-        tmp_index.clear();
-        all_mers_vector.insert(1, remove_kmer_hash_from_flat_vector(&all_mers_vector_tmp));
+        index_vector(&tmp_index);
+        filter_cutoff.insert(0, count_vector(&flat_vector, f));
 
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
         read_process_fastq_records(reader, threads as u32, queue_len, ref_process_read_fastq_kstrobe, |record, found| {ref_main_thread_kstrobe(found)});
-        let (mut all_mers_vector_tmp, unique_elements) = construct_flat_vector();
+        let (mut flat_vector, unique_elements) = construct_flat_vector();
         println!("Unique k-strobemers:\t{}", unique_elements);
         let f = params.f;
-        filter_cutoff.insert(0, index_vector(&all_mers_vector_tmp, f));
-        tmp_index.clear();
-        all_mers_vector.insert(1, remove_kmer_hash_from_flat_vector(&all_mers_vector_tmp));
+        index_vector(&tmp_index);
+        filter_cutoff.insert(0, count_vector(&flat_vector, f));
     }
     let buf = get_reader(&filename);
     if fasta_reads {
@@ -217,7 +217,7 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
         read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_kstrobe, |record, found| {main_thread_kstrobe(found)});
         let id_hashes_view = Arc::try_unwrap(id_hashes).unwrap().into_read_only();
         let id_lengths_view = Arc::try_unwrap(id_lengths).unwrap().into_read_only();
-        kstrobes::output_paf(&mut all_nams, params.l, id_hashes_view, id_lengths_view, &mut paf_file);
+        kstrobes::output_paf(&mut all_nams, params.l, id_hashes_view, id_lengths_view, &mut paf_file, params.k);
 
     }
     else {
@@ -225,7 +225,7 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
         read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_kstrobe, |record, found| {main_thread_kstrobe(found)});
         let id_hashes_view = Arc::try_unwrap(id_hashes).unwrap().into_read_only();
         let id_lengths_view = Arc::try_unwrap(id_lengths).unwrap().into_read_only();
-        kstrobes::output_paf(&mut all_nams, params.l, id_hashes_view, id_lengths_view, &mut paf_file);
+        kstrobes::output_paf(&mut all_nams, params.l, id_hashes_view, id_lengths_view, &mut paf_file, params.k);
     }
 }
 
@@ -766,10 +766,10 @@ pub fn run_ksyncmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params
         else {tot_mid_ab += 1;}
         kminmer_counts.push(count);
         hash_counts.insert(curr_k, count);
-        println!("Total k-min-mers count:\t{}", offset);
-        println!("Total k-min-mers unique:\t{}", tot_occur_once);
-        println!("Total k-min-mers high-ab:\t{}", tot_high_ab);
-        println!("Total k-min-mers mid-ab:\t{}", tot_mid_ab);
+        println!("Total k-syncmers count:\t{}", offset);
+        println!("Total k-syncmers unique:\t{}", tot_occur_once);
+        println!("Total k-syncmers high-ab:\t{}", tot_high_ab);
+        println!("Total k-syncmers mid-ab:\t{}", tot_mid_ab);
         if params.f != 0.0 {
             kminmer_counts.sort_unstable();
             kminmer_counts.reverse();
