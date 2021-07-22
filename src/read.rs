@@ -86,7 +86,6 @@ impl ReadSync {
             
     }
     pub fn extract_syncmer(inp_id: &str, mut inp_seq_raw: String, params: &Params, minimizer_to_int: &HashMap<String, u64>) -> Self {
-        let size_miniverse = params.size_miniverse as u64;
         let density = params.density;
         let l = params.l;
         let s = params.s;
@@ -179,7 +178,6 @@ impl Read {
 
     //delete
     pub fn extract_lcp(inp_id: &str, mut inp_seq_raw: String, params: &Params, minimizer_to_int: &HashMap<String, u64>, lcp_bloom: &RacyBloom) -> Self {
-        let size_miniverse = params.size_miniverse as u64;
         let density = params.density;
         let l = params.l;
         let mut read_minimizers = Vec::<String>::new();
@@ -212,7 +210,6 @@ impl Read {
         Read {id: inp_id.to_string(), minimizers: read_minimizers, minimizers_pos: read_minimizers_pos, transformed: read_transformed, seq: inp_seq_raw, corrected: false}
     }
     pub fn extract_uhs(inp_id: &str, mut inp_seq_raw: String, params: &Params, minimizer_to_int: &HashMap<String, u64>, uhs_bloom: &RacyBloom) -> Self {
-        let size_miniverse = params.size_miniverse as u64;
         let density = params.density;
         let l = params.l;
         let mut read_minimizers = Vec::<String>::new();
@@ -264,7 +261,6 @@ impl Read {
     }
     
     pub fn extract_density(inp_id: &str, mut inp_seq_raw: String, params: &Params, minimizer_to_int: &HashMap<String, u64>) -> Self {
-        let size_miniverse = params.size_miniverse as u64;
         let density = params.density;
         let l = params.l;
         let mut read_minimizers = Vec::<String>::new();

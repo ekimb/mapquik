@@ -79,7 +79,7 @@ type Overlap = kmer_vec::KmerVec;
 pub struct HashEntry {origin: String, seq: String, seqlen: u32, shift: (usize, usize), seq_rev: bool}
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
 pub struct QueryMatch {kminmer: Kmer, target: Vec<HashEntry>, query: HashEntry}
-struct SeqFileType(WriteCompressor<File>);
+pub struct SeqFileType(WriteCompressor<File>);
 unsafe impl Sync for SeqFileType {} // same trick as below. we won't share files among threads but Rust can't know that.
 impl SeqFileType {
     fn new(v: File) -> SeqFileType {
@@ -480,66 +480,15 @@ fn main() {
     let ref_metadata = fs::metadata(&ref_filename).expect("Error opening reference file.");
     let file_size = metadata.len();
     let mut pb = ProgressBar::on(stderr(),file_size);
-    let mut lmer_counts : HashMap<String, u32> = HashMap::new();
-
-    if has_lmer_counts {
-        let lmer_counts_file = match File::open(lmer_counts_filename) {
-            Err(why) => panic!("Couldn't load l-mer counts: {}.", why.description()),
-            Ok(lmer_counts_file) => lmer_counts_file,
-        }; 
-        let mut br = BufReader::new(lmer_counts_file);
-        loop {
-            let mut line = String::new();
-            let new_line = |line: &mut String, br: &mut BufReader<File>| {line.clear(); br.read_line(line).ok();};
-            if let Err(e) = br.read_line(&mut line) {break;}
-            if line.len() == 0                      {break;}
-            let trimmed = line.trim().to_string();   
-            let vec : Vec<String> = trimmed.split(" ").map(String::from).collect();
-            let lmer = vec[0].to_string();
-            let lmer_rev = utils::revcomp(&lmer);
-            let lmer = if lmer > lmer_rev {lmer} else {lmer_rev}; //don't trust the kmer counter to normalize like we do
-            let count = vec[1].parse::<u32>().unwrap();
-            lmer_counts.insert(lmer, count);               
-            new_line(&mut line, &mut br);
-        }
-    }
-    let mut minimizer_to_int : HashMap<String,u64> = HashMap::new();
-    let mut int_to_minimizer : HashMap<u64,String> = HashMap::new();
-    // only need to initialize the minimizer_to_int / int_to_minimizer array if we do POA or use robust minimizers
-    // they can be costly for k=14
-    if has_lmer_counts {
-        let res = minimizers::minimizers_preparation(&mut params, &filename, file_size, &lmer_counts);
-        minimizer_to_int = res.0;
-        int_to_minimizer = res.1;
-    }
-    let (mean_length, max_length) = read_first_n_reads(&filename, fasta_reads, 10);
     let mut queue_len = 200; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
 
-    let mut uhs_bloom : RacyBloom = RacyBloom::new(Bloom::new(if use_bf {500_000_000} else {1}, 1_000_000_000_000_000));
-    let mut lcp_bloom : RacyBloom = RacyBloom::new(Bloom::new(if use_bf {500_000_000} else {1}, 1_000_000_000_000_000));
-
-    if params.uhs {uhs_bloom = minimizers::uhs_preparation(&mut params, &uhs_filename)}
-    if params.lcp {lcp_bloom = minimizers::lcp_preparation(&mut params, &lcp_filename)}
-
     // dbg_nodes is a hash table containing (kmers -> (index,count))
     // it will keep only those with count > 1
-    let mut kmer_table     : Arc<DashMap<Kmer, Vec<HashEntry>>> = Arc::new(DashMap::new()); // it's a Counter
-    let mut ref_abundance_table     : Arc<DashMap<Kmer, usize>> = Arc::new(DashMap::new()); // it's a Counter
-    let mut query_abundance_table     : Arc<DashMap<Kmer, usize>> = Arc::new(DashMap::new()); // it's a Counter
-
-    let mut query_matches     : Arc<DashMap<String, Vec<QueryMatch>>> = Arc::new(DashMap::new()); // it's a Counter
    
 
-
-
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
-    let mut bloom         : RacyBloom = RacyBloom::new(Bloom::new(if use_bf {500_000_000} else {1}, 1_000_000_000_000_000)); // same bf but making sure we use only 1 hash function for speed
-    static node_index     : AtomicUsize = AtomicUsize::new(0); // associates a unique integer to each k-min-mer
-    let mut kmer_seqs     : HashMap<Kmer, String> = HashMap::new(); // associate a k-min-mer to an arbitrary sequence from the reads
-    let mut kmer_seqs_lens: HashMap<Kmer, Vec<u32>> = HashMap::new(); // associate a k-min-mer to the lengths of all its sequences from the reads
-    let mut kmer_origin   : HashMap<Kmer, String> = HashMap::new(); // remember where in the read/refgenome the kmer comes from
     let paf_path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
     let mut paf_file = match File::create(&paf_path) {
         Err(why) => panic!("Couldn't create {}: {}", paf_path, why.description()),
