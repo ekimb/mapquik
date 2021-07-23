@@ -31,7 +31,9 @@ use super::kstrobes;
 use super::kminmers;
 use super::kminmers::{NAM as KminmerNAM};
 use super::ksyncmers;
-use super::ksyncmers::{Match};
+use super::ksyncmers::{TFIDFMatch};
+use super::kstrobes::{Match};
+
 use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookup, KmerLookupMod, PosIndexMod};
 use std::path::PathBuf;
 use dashmap::DashSet;
@@ -78,7 +80,7 @@ pub fn run_kstrobes(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
                 let mut mer = kstrobes[i];
                 let entry = mers_index.get_mut(&mer.0);
                 if entry.is_some() {
-                    if entry.unwrap().len() > 1 {mers_index.remove(&mer.0);}
+                    if entry.unwrap().len() >= 1 {mers_index.remove(&mer.0);}
                 }
                 else {
                     mer.4 = i_p;
@@ -570,7 +572,7 @@ pub fn run_kminmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params,
 
 pub fn run_ksyncmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
     let mut mers_index : Arc<DashMap<u64, Vec<(String, usize)>>> =  Arc::new(DashMap::new());
-    let mut all_matches = Vec::<(Vec<Match>, String)>::new();
+    let mut all_matches = Vec::<(Vec<TFIDFMatch>, String)>::new();
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
     let mut paf_file = match File::create(&path) {
         Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
@@ -602,7 +604,7 @@ pub fn run_ksyncmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params
                 let mut mer = ksyncmers[i];
                 let entry = mers_index.get_mut(&mer.0);
                 if entry.is_some() {
-                    if entry.unwrap().len() > 1 {mers_index.remove(&mer.0);}
+                    if entry.unwrap().len() >= 1 {mers_index.remove(&mer.0);}
                 }
                 else {
                     mer.4 = i_p;
@@ -635,8 +637,8 @@ pub fn run_ksyncmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params
         let seq_id_hash = found.as_ref().unwrap();
         None::<()>
     };
-    let query_process_read_aux_ksyncmer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<Match>, String)> {
-        let mut output = Vec::<Match>::new();
+    let query_process_read_aux_ksyncmer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<TFIDFMatch>, String)> {
+        let mut output = Vec::<TFIDFMatch>::new();
         let (seq_len, ksyncmers) = index_ksyncmers(seq_id, seq_str, params, true);
         output = ksyncmers::find_hits(&seq_id, seq_len, &ksyncmers, &ref_mers, &mers_index, params.l, params.k);
         if output.len() > 0 {
@@ -645,18 +647,18 @@ pub fn run_ksyncmers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params
         else {return None}
     };
     
-    let query_process_read_fasta_ksyncmer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<Match>, String)>| {
+    let query_process_read_fasta_ksyncmer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<TFIDFMatch>, String)>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_ksyncmer(&seq_str, &seq_id);
     
     };
-    let query_process_read_fastq_ksyncmer = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<Match>, String)>| {
+    let query_process_read_fastq_ksyncmer = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<TFIDFMatch>, String)>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_ksyncmer(&seq_str, &seq_id);
     };
-    let mut main_thread_ksyncmer = |found: &mut Option<(Vec<Match>, String)>| { // runs in main thread
+    let mut main_thread_ksyncmer = |found: &mut Option<(Vec<TFIDFMatch>, String)>| { // runs in main thread
         if found.is_some() {
             let (matches, seq_id) = found.as_ref().unwrap();
             all_matches.push((matches.to_vec(), seq_id.to_string()));
