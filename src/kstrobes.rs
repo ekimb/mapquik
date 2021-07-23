@@ -974,23 +974,24 @@ pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File) 
         let mut max_i = 0;
         for i in 0..matches.len() {
             let score = matches[i].8;
-            if score as usize <= 1 {continue;}
-            if score > max_score {max_score = score; max_i = i;}
+            //if score as usize <= 1 {continue;}
+            //if score > max_score {max_score = score; max_i = i;}
+           // if max_score == 0.0 {continue;}
+            let v = &matches[i];    //let v = &matches[max_i];
+            let query_id = v.0.to_string();
+            let ref_id = v.1.to_string();
+            let query_len = v.2;
+            let ref_len = v.3;
+            let query_s = v.4;
+            let query_e = v.5;
+            let ref_s = v.6;
+            let ref_e = v.7;
+            let score = v.8;
+            let rc : String = match v.9 {true => "-".to_string(), false => "+".to_string()};
+            let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, query_s, query_e, rc, ref_id, ref_len, ref_s, ref_e, score, ref_len, "255");
+            write!(paf_file, "{}", paf_line).expect("Error writing line.");
         }
-        if max_score == 0.0 {continue;}
-        let v = &matches[max_i];
-        let query_id = v.0.to_string();
-        let ref_id = v.1.to_string();
-        let query_len = v.2;
-        let ref_len = v.3;
-        let query_s = v.4;
-        let query_e = v.5;
-        let ref_s = v.6;
-        let ref_e = v.7;
-        let score = v.8;
-        let rc : String = match v.9 {true => "-".to_string(), false => "+".to_string()};
-        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, query_s, query_e, rc, ref_id, ref_len, ref_s, ref_e, score, ref_len, "255");
-        write!(paf_file, "{}", paf_line).expect("Error writing line.");
+        
     }
 }
 
