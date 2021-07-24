@@ -471,7 +471,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<(u64, usize,
             let mut final_ref_e = 0;
             let mut final_query_s = 0;
             let mut final_query_e = 0;
-            if max_fwd_tf_idf > max_rc_tf_idf {
+            if fwd_mappings.len() != 0 {
                 let max_mapping = fwd_mappings[max_fwd_mapping].to_vec();
                 if max_mapping[0].ref_s < max_mapping[0].query_s {
                     final_ref_s = 0;
@@ -490,7 +490,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<(u64, usize,
                 println!("FWD:\n{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", query_id, final_query_s, final_query_e, ref_id, final_ref_s, final_ref_e, max_fwd_tf_idf, false);
                 final_matches.push(v);
             }
-            else if max_fwd_tf_idf < max_rc_tf_idf {
+            if rc_mappings.len() != 0 {
                 let max_mapping = rc_mappings[max_rc_mapping].to_vec();
                 if max_mapping[0].ref_s < max_mapping[0].query_s {
                     final_ref_s = 0;
