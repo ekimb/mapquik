@@ -424,13 +424,9 @@ fn main() {
     let ref_metadata = fs::metadata(&ref_filename).expect("Error opening reference file.");
     let file_size = metadata.len();
     let pb = ProgressBar::on(stderr(),file_size);
-    let queue_len = 200; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+    let queue_len = threads; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
-
-    // dbg_nodes is a hash table containing (kmers -> (index,count))
-    // it will keep only those with count > 1
-   
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
     let paf_path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");

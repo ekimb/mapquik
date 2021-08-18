@@ -17,54 +17,38 @@ use super::Params;
 use crate::{get_reader, hash_id};
 
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
-    let mers_index : Arc<DashMap<u64, Vec<(String, usize)>>> =  Arc::new(DashMap::new());
+    let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
     let mut all_matches = Vec::<(Vec<Match>, String)>::new();
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
     let mut paf_file = match File::create(&path) {
         Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
         Ok(paf_file) => paf_file,
     };
-    let ref_mers : DashMap<String, (usize, Vec<Mer>)> = DashMap::new();
-    let query_mers : DashMap<String, (usize, Vec<Mer>)> = DashMap::new();
+    let lens : DashMap<String, usize> = DashMap::new();
     let index_mers = |seq_id: &str, seq: &[u8], params: &Params, read: bool| -> (usize, Vec<Mer>) {
-        let mut unique_mers = Vec::<Mer>::new();
-        let (seq_len, mers) = mers::seq_to_kmers(seq, seq_id, params, read);
-        
+        let (seq_len, mut mers) = mers::seq_to_kmers(seq, seq_id, params, read);
         if read == true {
+            lens.insert(seq_id.to_string(), seq_len);
             println!("Seq ID\t{}\tmers len\t{}", seq_id, mers.len());
-            let mut i_p = 0;
-            for i in 0..mers.len() {
-                let mut mer = mers[i];
-                let entry = mers_index.get_mut(&mer.0);
-                if entry.is_some() {
-                    if entry.unwrap().len() == 1 {
-                        mer.3 = i_p;
-                        unique_mers.push(mer);
-                        i_p += 1;
-                    }
-                }
-            }
-            query_mers.insert(seq_id.to_string(), (seq_len, unique_mers.to_vec()));
         }
         else {
-            let mut i_p = 0;
-            for i in 0..mers.len() {
-                let mut mer = mers[i];
-                let entry = mers_index.get_mut(&mer.0);
-                if entry.is_some() {
-                    if entry.unwrap().len() >= 1 {mers_index.remove(&mer.0);}
+            mers_index.insert(seq_id.to_string(), DashMap::new());
+            mers.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+            let mut prev_mer = mers[0];
+            let mut entry_map = mers_index.get_mut(&seq_id.to_string()).unwrap();
+            entry_map.insert(prev_mer.0, (prev_mer, 1));
+            for i in 1..mers.len() {
+                let mut curr_mer = mers[i];
+                if curr_mer.0 == prev_mer.0 {
+                    let entry = entry_map.get_mut(&curr_mer.0);
+                    entry.unwrap().1 += 1;
                 }
-                else {
-                    mer.3 = i_p;
-                    mers_index.insert(mer.0, vec![(seq_id.to_string(), i_p)]);
-                    unique_mers.push(mer);
-                    i_p += 1;
-                }
+                else {entry_map.insert(curr_mer.0, (curr_mer, 1));}
+                prev_mer = curr_mer;
             }  
-            ref_mers.insert(seq_id.to_string(), (seq_len, unique_mers.to_vec()));   
+            lens.insert(seq_id.to_string(), seq_len);
         }
-        println!("Seq ID\t{}\tunique mers len\t{}", seq_id, unique_mers.len());
-        return (seq_len, unique_mers);
+        return (seq_len, mers);
     };
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         let (seq_len, unique_mers) = index_mers(ref_id, ref_str, params, false);
@@ -89,7 +73,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<Match>, String)> {
         let mut output = Vec::<Match>::new();
         let (seq_len, mers) = index_mers(seq_id, seq_str, params, true);
-        output = mers::find_hits(&seq_id, seq_len, &mers, &ref_mers, &mers_index, params.l, params.k);
+        output = mers::find_hits(&seq_id, seq_len, &mers, &lens, &mers_index, params.l, params.k);
         if output.len() > 0 {
             return Some((output, seq_id.to_string()))
         }

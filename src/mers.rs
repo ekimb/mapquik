@@ -292,7 +292,7 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool) -> (usize
     return (seq.len(), mers);
 }
 
-pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_index: &DashMap<String, (usize, Vec<Mer>)>, mers_index: &DashMap<u64, Vec<(String, usize)>>, l: usize, k: usize) -> Vec<Match> {
+pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<String, DashMap<u64, (Mer, usize)>>, l: usize, k: usize) -> Vec<Match> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let mut hit_count_all = 0;
     let mut i = 0;
@@ -301,38 +301,29 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_in
         if i < query_mers.len() {
             let q = query_mers[i];
             let mut h = Hit {query_id: query_id.to_string(), ref_id: String::new(), query_s: q.1, query_e: q.2, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4, query_span: 0, ref_span: 0, offset: 0};
-            let mer_entry = mers_index.get(&q.0);
-            let mut extend_offset = 0;
-            if mer_entry.is_some() {
-                let mer = &mer_entry.unwrap()[0];
-                let ref_id = mer.0.to_string();
-                let offset = mer.1;
-                let ref_mers_len = ref_index.get(&ref_id).unwrap();
-                let ref_len = ref_mers_len.0;
-                let ref_mers = &ref_mers_len.1;
-                let j = offset;
-                let r = ref_mers[j];
-                h.offset = j;
-                h.ref_id = ref_id.to_string();
-                h.ref_s = r.1;
-                while query_mers[i+extend_offset].0 == ref_mers[j+extend_offset].0 {
-                    let r_next = ref_mers[j+extend_offset];
-                    let q_next = query_mers[i+extend_offset];
-                    h.query_e = q_next.2;
-                    h.ref_e = r_next.2;
+            let mut max_extend_offset = 0;
+            for index in mers_index.iter() {
+                let ref_id = index.key().to_string();
+                let ref_mer_count = index.value();
+                let mer_entry = ref_mer_count.get(&q.0);
+                if mer_entry.is_some() {
+                    let tup = mer_entry.unwrap();
+                    let (mer, count) = tup.value();
+                    if *count != 1 {continue;}
+                    h.offset = mer.3;
+                    h.ref_id = ref_id.to_string();
+                    h.ref_s = mer.1;
+                    h.query_e = q.2;
+                    h.ref_e = mer.2;
                     h.hit_count += 1;
                     h.query_span = h.query_e - h.query_s + 1; 
                     h.ref_span = h.ref_e - h.ref_s + 1; 
-                    extend_offset += 1;
-                    if i + extend_offset == query_mers.len() {break;}
-                    if j + extend_offset == ref_mers.len() {break;}
+                    hits_per_ref.entry(ref_id.to_string()).or_insert(vec![h.clone()]).push(h.clone());
+                    hit_count_all += 1;
                 }
-                hits_per_ref.entry(ref_id).or_insert(vec![h.clone()]).push(h.clone());
-
-                hit_count_all += 1;
             }
-            if extend_offset == 0 {i += 1;} else {i += extend_offset;}
         }
+        i += 1;
     }
     let mut final_matches = Vec::<Match>::new();
     let prev_key : u64 = 0;
@@ -346,85 +337,93 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_in
         let mut max_rc_mapping_score = 0;
         let ref_id = key;
         let hits = val.to_vec();
-        let ref_len = ref_index.get(&ref_id).unwrap().0;
-        let hit_ids : HashSet<String> = hits.iter().map(|hit| hit.query_id.to_string()).collect();
-        for id in hit_ids.iter() {
+        let ref_len = *ref_lens.get(&ref_id).unwrap().value();
             //println!("_____________________{} to {}_____________\nRC", query_id, ref_id);
-            let prev_q_start = 0;
-            let rc_mono = true;
-            let fwd_hit_avg = 0.0;
-            let rc_hit_avg = 0.0;
-            let fwd_mono = true;
-            let write_fwd = false;
-            let write_rc = false;
-            let fwd_counts = 0;
-            let rc_counts = 0;
-            let rc_ref_end = 0;
-            let rc_query_end = 0;
-            let fwd_ref_end = 0;
-            let fwd_query_end = 0;
-            let rc_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == true && hit.query_id == query_id).collect();
-            let rc_hits_cleared = Vec::<&Hit>::new();
-            let fwd_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == false && hit.query_id == query_id).collect();
-            let fwd_hits_cleared = Vec::<&Hit>::new();
-            let rc_mappings = Vec::<Vec::<&Hit>>::new();
-            let fwd_mappings = Vec::<Vec::<&Hit>>::new();
+        let prev_q_start = 0;
+        let rc_mono = true;
+        let fwd_hit_avg = 0.0;
+        let rc_hit_avg = 0.0;
+        let fwd_mono = true;
+        let write_fwd = false;
+        let write_rc = false;
+        let fwd_counts = 0;
+        let rc_counts = 0;
+        let rc_ref_end = 0;
+        let rc_query_end = 0;
+        let fwd_ref_end = 0;
+        let fwd_query_end = 0;
+        let rc_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == true && hit.query_id == query_id).collect();
+        let rc_hits_cleared = Vec::<&Hit>::new();
+        let fwd_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == false && hit.query_id == query_id).collect();
+        let fwd_hits_cleared = Vec::<&Hit>::new();
+        let rc_mappings = Vec::<Vec::<&Hit>>::new();
+        let fwd_mappings = Vec::<Vec::<&Hit>>::new();
+            
             // -----------------------FINDING RC MAPPINGS-----------------------
-            if rc_hits.len() != 0 {
-                let mut prev_rc_hit = rc_hits[0];
-                let mut current_mapping = vec![prev_rc_hit];
-                for i in 1..rc_hits.len() {
-                    let curr_rc_hit = rc_hits[i];
-                    if curr_rc_hit.ref_s < prev_rc_hit.ref_s || /*curr_rc_hit.hit_count == 1 ||*/ (prev_rc_hit.ref_e  + query_len < curr_rc_hit.ref_s) {
-                        if current_mapping.len() != 0 {
-                            final_rc_mappings.push(current_mapping.into_iter().cloned().collect());
-                        }
-                        current_mapping = Vec::<&Hit>::new();
-                        continue;
-                    } 
-                    current_mapping.push(curr_rc_hit);
-                    prev_rc_hit = curr_rc_hit;               
-                }
-                final_rc_mappings.push(current_mapping.into_iter().cloned().collect());
-            }
-            // -----------------------FINDING FWD MAPPINGS-----------------------
-            if fwd_hits.len() != 0 {
-                let mut prev_fwd_hit = fwd_hits[0];
-                let mut current_mapping = vec![prev_fwd_hit];
-                for i in 1..fwd_hits.len() {
-                    let curr_fwd_hit = fwd_hits[i];
-                    if curr_fwd_hit.ref_s < prev_fwd_hit.ref_s || /* curr_fwd_hit.hit_count == 1  ||*/ (prev_fwd_hit.ref_e  + query_len < curr_fwd_hit.ref_s) {
-                        if current_mapping.len() != 0 {
-                            final_fwd_mappings.push(current_mapping.into_iter().cloned().collect());
-                        }
-                        current_mapping = Vec::<&Hit>::new();
-                        continue;
+        if rc_hits.len() != 0 {
+            let mut prev_rc_hit = rc_hits[0];
+            let mut current_mapping = vec![prev_rc_hit];
+            for i in 1..rc_hits.len() {
+                let curr_rc_hit = rc_hits[i];
+                if curr_rc_hit.ref_s < prev_rc_hit.ref_s || /*curr_rc_hit.hit_count == 1 ||*/ (prev_rc_hit.ref_e  + query_len < curr_rc_hit.ref_s) {
+                    if current_mapping.len() != 0 {
+                        final_rc_mappings.push(current_mapping.into_iter().cloned().collect());
                     }
-                    current_mapping.push(curr_fwd_hit);
-                    prev_fwd_hit = curr_fwd_hit;
-                }
-                final_fwd_mappings.push(current_mapping.into_iter().cloned().collect());
+                    current_mapping = Vec::<&Hit>::new();
+                    continue;
+                } 
+                current_mapping.push(curr_rc_hit);
+                prev_rc_hit = curr_rc_hit;               
             }
-            for i in 0..final_fwd_mappings.len() {
-                let mapping = &final_fwd_mappings[i];
-                let mut mapping_score = 0;
-                for hit in mapping.iter() {mapping_score += hit.hit_count;}
-                if mapping_score > max_fwd_mapping_score {max_fwd_mapping_score = mapping_score; max_fwd_mapping = i;}
-                //println!("MAPPING {} SCORE {}", i+1, mapping_score);
-                for hit in mapping.iter() {
-                    //println!("{:?}", hit);
+            final_rc_mappings.push(current_mapping.into_iter().cloned().collect());
+        }
+        // -----------------------FINDING FWD MAPPINGS-----------------------
+        if fwd_hits.len() != 0 {
+            let mut prev_fwd_hit = fwd_hits[0];
+            let mut current_mapping = vec![prev_fwd_hit];
+            for i in 1..fwd_hits.len() {
+                let curr_fwd_hit = fwd_hits[i];
+                if curr_fwd_hit.ref_s < prev_fwd_hit.ref_s || /* curr_fwd_hit.hit_count == 1  ||*/ (prev_fwd_hit.ref_e  + query_len < curr_fwd_hit.ref_s) {
+                    if current_mapping.len() != 0 {
+                        final_fwd_mappings.push(current_mapping.into_iter().cloned().collect());
+                    }
+                    current_mapping = Vec::<&Hit>::new();
+                    continue;
                 }
+                current_mapping.push(curr_fwd_hit);
+                prev_fwd_hit = curr_fwd_hit;
             }
-            for i in 0..final_rc_mappings.len() {
-                let mapping = &final_rc_mappings[i];
-                let mut mapping_score = 0;
-                for hit in mapping.iter() {mapping_score += hit.hit_count;}
-                if mapping_score > max_rc_mapping_score {max_rc_mapping_score = mapping_score; max_rc_mapping = i;}
-                //println!("MAPPING {} SCORE {}", i+1, mapping_score);
-                for hit in mapping.iter() {
-                   // println!("{:?}", hit);
-                }
-            }
+            final_fwd_mappings.push(current_mapping.into_iter().cloned().collect());
+        }
+        for i in 0..final_fwd_mappings.len() {
+            let mapping = &final_fwd_mappings[i];
+            if mapping.is_empty() {continue;}
+            let mapping_s = mapping.iter().min_by(|a, b| a.query_s.cmp(&b.query_s)).unwrap().query_s;
+            let mapping_e = mapping.iter().max_by(|a, b| a.query_e.cmp(&b.query_e)).unwrap().query_e;
+            let mapping_span = mapping_e - mapping_s;
+            let mapping_score = mapping.len() * mapping_span;
+            //for hit in mapping.iter() {mapping_score += (hit.query_e - hit.query_s);}
+            if mapping_score > max_fwd_mapping_score {max_fwd_mapping_score = mapping_score; max_fwd_mapping = i;}
+            /*println!("MAPPING {} SCORE {}", i+1, mapping_score);
+            for hit in mapping.iter() {
+                println!("{:?}", hit);
+            }*/
+        }
+        for i in 0..final_rc_mappings.len() {
+            let mapping = &final_rc_mappings[i];
+            if mapping.is_empty() {continue;}
+            let mapping_s = mapping.iter().min_by(|a, b| a.query_s.cmp(&b.query_s)).unwrap().query_s;
+            let mapping_e = mapping.iter().max_by(|a, b| a.query_e.cmp(&b.query_e)).unwrap().query_e;
+            let mapping_span = mapping_e - mapping_s;
+            let mapping_score = mapping.len() * mapping_span;
+            /*for hit in mapping.iter() {
+                mapping_score += (hit.query_e - hit.query_s);
+            }*/
+            if mapping_score > max_rc_mapping_score {max_rc_mapping_score = mapping_score; max_rc_mapping = i;}
+            /*println!("MAPPING {} SCORE {}", i+1, mapping_score);
+            for hit in mapping.iter() {
+                println!("{:?}", hit);
+            }*/
         }  
         let mut final_ref_s = 0;
         let mut final_ref_e = 0;
@@ -446,8 +445,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_in
                 final_ref_e = max_mapping[0].ref_s - max_mapping[0].query_s + query_len - 1; 
             }
             let ref_id = &max_mapping[0].ref_id;
-            let ref_mers_len = ref_index.get(ref_id).unwrap();
-            let ref_len = ref_mers_len.0;
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, max_fwd_mapping_score, false);
             final_matches.push(v);
         }
@@ -467,12 +464,13 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_in
                 final_ref_e = max_mapping[0].ref_s - max_mapping[0].query_s + query_len - 1; 
             }
             let ref_id = &max_mapping[0].ref_id;
-            let ref_mers_len = ref_index.get(ref_id).unwrap();
-            let ref_len = ref_mers_len.0;
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, max_rc_mapping_score, true);
             //println!("{:?}", v);
             final_matches.push(v);
         }
+    }
+    for fin in final_matches.iter() {
+        println!("{:?}", fin);
     }
     return final_matches
 }
