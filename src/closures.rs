@@ -15,6 +15,7 @@ use super::{MersVector, MersVectorReduced, MersVectorRead, PosIndex, KmerLookup,
 use std::path::PathBuf;
 use super::Params;
 use crate::{get_reader, hash_id};
+use indicatif::ProgressBar;
 
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
     let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
@@ -43,7 +44,9 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
                     let entry = entry_map.get_mut(&curr_mer.0);
                     entry.unwrap().1 += 1;
                 }
-                else {entry_map.insert(curr_mer.0, (curr_mer, 1));}
+                else {
+                    entry_map.insert(curr_mer.0, (curr_mer, 1));
+                }
                 prev_mer = curr_mer;
             }  
             lens.insert(seq_id.to_string(), seq_len);

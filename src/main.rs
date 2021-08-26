@@ -6,7 +6,7 @@
 #![allow(unused_variables)]
 #![allow(non_upper_case_globals)]
 #![allow(warnings)]
-use pbr::ProgressBar;
+use indicatif::ProgressBar;
 use std::io::stderr;
 use std::error::Error;
 use std::io::Write;
@@ -423,7 +423,6 @@ fn main() {
     let metadata = fs::metadata(&filename).expect("Error opening input file.");
     let ref_metadata = fs::metadata(&ref_filename).expect("Error opening reference file.");
     let file_size = metadata.len();
-    let pb = ProgressBar::on(stderr(),file_size);
     let queue_len = threads; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
