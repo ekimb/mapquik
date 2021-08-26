@@ -2,7 +2,7 @@
 `hifimap`: fast HiFi read mapper using k-min-mers
 =========
 
-`hifimap` is an ultra-fast minimizer-space read mapper based on the de Bruijn graph (mdBG). It aligns long and accurate reads such as [PacBio HiFi](https://www.pacb.com/smrt-science/smrt-sequencing/hifi-reads-for-highly-accurate-long-read-sequencing/) to a reference genome.
+`hifimap` is an ultra-fast read mapper based on the minimizer-space de Bruijn graph (mdBG). It aligns long and accurate reads such as [PacBio HiFi](https://www.pacb.com/smrt-science/smrt-sequencing/hifi-reads-for-highly-accurate-long-read-sequencing/) to a reference genome.
 
 ## Rationale
 
@@ -66,7 +66,7 @@ for a lengthy explanation of each flag.
 
 ## Citation
 
-For now, please cite out other mdBG article: [Minimizer-space de Bruijn graphs](https://www.biorxiv.org/content/10.1101/2021.06.09.447586v1) (2021) BiorXiv
+Hifimap is not yet published. For now, please cite our original mdBG article: [Minimizer-space de Bruijn graphs](https://www.biorxiv.org/content/10.1101/2021.06.09.447586v1) (2021) BiorXiv
 
 ```
 @article {mdbg,
