@@ -306,7 +306,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
     let mut hit_count_all = 0;
     let mut i = 0;
     let mut i_rev = 0;
-    println!("{}", query_id);
     while i < query_mers.len() {
         if i < query_mers.len() {
             let q = query_mers[i];
@@ -321,7 +320,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
                     let (mer, count) = tup.value();
                     if *count > 1 {continue;}
                     // figure out if + or -
-                    println!("{:?}\t{:?}", q, mer);
                     h.query_offset = q.3;
                     h.ref_offset = mer.3;
                     h.ref_id = ref_id.to_string();
@@ -378,68 +376,82 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
         let mut hits = Vec::<&Hit>::new();
         let mut max_fwd_off = 0;
         let mut max_rc_off = 0;
+        let mut curr_dir = true;
         if hits_raw.len() != 0 {
-            hits_raw.sort_by(|a, b| a.ref_offset.cmp(&b.ref_offset));
-            let mut dir = true;
+            let mut prev_dir = true;
             if hits_raw.len() > 1 {
-                println!("FIRST OFFSET {} SECOND OFFSET {}, DIR {:?}", hits_raw[0].ref_offset, hits_raw[1].ref_offset, dir);
-                dir = (hits_raw[1].query_offset >= hits_raw[0].query_offset);
+                prev_dir = (hits_raw[1].ref_offset >= hits_raw[0].ref_offset);
             }
             let mut prev = &hits_raw[0];
-            let mut prev_offset = hits_raw[0].query_offset;
-            println!("FIRST OFFSET {} DIR {:?}", hits_raw[0].query_offset, dir);
-            filtered_hits_fwd.push(&hits_raw[0]);
-            filtered_hits_rc.push(&hits_raw[0]);
             for i in 1..hits_raw.len() {
-                println!("{}", hits_raw[i].query_offset);
-                if dir == true {
-                    if hits_raw[i].query_offset >= prev_offset {
-                        filtered_hits_fwd.push(&hits_raw[i]);
-                        fwd_off += 1;
-                        if max_fwd_off < fwd_off {max_fwd_off = fwd_off;}
-                    }
-                    else {
-                        dir = false;
-                        fwd_off = 0;
+                curr_dir = hits_raw[i].ref_offset >= prev.ref_offset;
+                if curr_dir == prev_dir && curr_dir == true {
+                    if hits_raw[i].ref_offset - prev.ref_offset == 1 {
+                        filtered_hits_fwd.push(&prev);
                     }
                 }
-                else {
-                    if hits_raw[i].query_offset <= prev_offset {
-                        filtered_hits_rc.push(&hits_raw[i]);
-                        rc_off += 1;
-                        if max_rc_off < rc_off {max_rc_off = rc_off;}
+                else if curr_dir == prev_dir && curr_dir == false {
+                    if prev.ref_offset - hits_raw[i].ref_offset == 1 {
+                        filtered_hits_rc.push(&prev);
                     }
-                    else {
-                        dir = true;
-                        rc_off = 0;
-                    }
-                }
+                } 
                 prev = &hits_raw[i];
-                prev_offset = prev.query_offset;
+                prev_dir = curr_dir;
             }
-            if max_rc_off < max_fwd_off {hits = filtered_hits_fwd.clone();}
+            if curr_dir {filtered_hits_fwd.push(&hits_raw[hits_raw.len()-1]);}
+            else {filtered_hits_rc.push(&hits_raw[hits_raw.len()-1]);}
+            if filtered_hits_rc.len() < filtered_hits_fwd.len() {hits = filtered_hits_fwd.clone();}
             else {hits = filtered_hits_rc.clone();}
         }
-        println!("HITS LEN {}\tFWD OFF {}\tRC OFF {}\t", hits.len(), max_fwd_off, max_rc_off);
-        s = hits[0].ref_s;
-        e = hits[hits.len()-1].ref_e;
-        span = e - s;
-        score = hits.len() * span;
+        let mut prev = &hits[0];
+        let mut prev_offset = prev.ref_offset;
+        let mut partitions = HashMap::<usize, Vec<&Hit>>::new();
+        let mut prev_i = 0;
+        partitions.insert(0, vec![&hits[0]]);
+        for i in 0..hits.len() {
+            println!("{}\t{}", i, hits[i].ref_offset);
+            let mut curr_offset = hits[i].ref_offset;
+            if ((curr_offset as i32 - prev_offset as i32)).abs() == 1 {
+                partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
+            }
+            else {
+                partitions.insert(i, vec![&hits[i]]);
+                prev_i = i;
+            }
+            prev_offset = curr_offset;
+        }
+        let mut hits = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1;
+        for hit in hits.iter() {println!("{:?}", hit);}
         let mut final_ref_s = hits[0].ref_s;
         let mut final_ref_e = hits[hits.len()-1].ref_e;
         let mut final_query_s = hits[0].query_s;
         let mut final_query_e = hits[hits.len()-1].query_e;
-        if max_rc_off > max_fwd_off {
-            final_query_s = hits[hits.len()-1].query_s;
-            final_query_e = hits[0].query_e;
+        if filtered_hits_rc.len() > filtered_hits_fwd.len() {
+            final_ref_s = hits[hits.len()-1].ref_s;
+            final_ref_e = hits[0].ref_e;
         }
-
+        let mut score = hits.len();
+        if final_ref_s > final_query_s {
+            final_ref_s -= final_query_s;
+            final_query_s = 0;
+        }
+        if final_ref_e - final_query_s > query_len {
+            let excess_add = query_len / 2;
+            if final_ref_s > excess_add {final_ref_s -= excess_add;}
+            else {final_ref_s = 0;}
+            if ref_len - final_ref_e > excess_add {final_ref_e += excess_add;}
+            else {final_ref_e = ref_len;}
+            if final_query_s > excess_add {final_query_s -= excess_add;}
+            else {final_query_s = 0;}
+            if query_len - final_query_e > excess_add {final_query_e += excess_add;}
+            else {final_query_e = query_len;}
+        }
         let ref_id = &hits[0].ref_id;
-        if max_fwd_off > max_rc_off && hits.len() != 0 {
+        if filtered_hits_fwd.len() > filtered_hits_rc.len() && hits.len() > 1 {
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, false);
             final_matches.push(v);
         }
-        else if max_rc_off > max_fwd_off && hits.len() != 0 {
+        else if filtered_hits_rc.len() > filtered_hits_fwd.len() && hits.len() > 1 {
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, true);
             final_matches.push(v);
         }
