@@ -229,7 +229,7 @@ pub fn get_randstrobe(i: usize, wmin: usize, wmax: usize, num_hashes: usize, str
     return Some(s);
 }
 
-pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool) -> (usize, Vec<Mer>) {
+pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_mers_index: &DashMap<u64, usize>, threshold: usize) -> (usize, Vec<Mer>) {
     let k = params.k;
     let l = params.l;
     let s = params.s;
@@ -243,6 +243,7 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool) -> (usize
     let q = 2_u64.pow(16) - 1;
     let t = 3;
     let (mut string_hashes, mut pos_to_seq_coord) = extract_mers(seq, params);
+    if read && params.f != 0.0 {string_hashes.retain(|hash| (*query_mers_index.get(&hash).unwrap().value() > 1) && (*query_mers_index.get(&hash).unwrap().value() <= threshold));}
     let num_hashes = string_hashes.len();
     for i in 0..num_hashes {
         let mut kmer_hash : u64 = 0;
@@ -409,7 +410,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
         let mut prev_i = 0;
         partitions.insert(0, vec![&hits[0]]);
         for i in 0..hits.len() {
-            println!("{}\t{}", i, hits[i].ref_offset);
             let mut curr_offset = hits[i].ref_offset;
             if ((curr_offset as i32 - prev_offset as i32)).abs() == 1 {
                 partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
@@ -421,7 +421,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
             prev_offset = curr_offset;
         }
         let mut hits = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1;
-        for hit in hits.iter() {println!("{:?}", hit);}
         let mut final_ref_s = hits[0].ref_s;
         let mut final_ref_e = hits[hits.len()-1].ref_e;
         let mut final_query_s = hits[0].query_s;
@@ -430,7 +429,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
             final_ref_s = hits[hits.len()-1].ref_s;
             final_ref_e = hits[0].ref_e;
         }
-        let mut score = hits.len();
+        let mut score = (final_ref_e - final_ref_s) / hits.len();
         if final_ref_s > final_query_s {
             final_ref_s -= final_query_s;
             final_query_s = 0;

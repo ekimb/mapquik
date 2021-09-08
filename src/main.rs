@@ -320,6 +320,7 @@ struct Opt {
     /// time, but can be run on a single core as well.
     #[structopt(long)]
     threads: Option<usize>,
+
 }
 
 fn main() {
@@ -336,7 +337,7 @@ fn main() {
     let mut l : usize = 12;
     let mut wmax : usize = 0;
     let mut wmin : usize = 0;
-    let mut f : f64 = 0.0;
+    let mut f : f64 = 1.0;
     let mut s : usize = 0;
     let mut density : f64 = 0.10;
     let reference : bool = false;
@@ -377,6 +378,7 @@ fn main() {
     if opt.bf {use_bf = true;}
     if opt.strobe {use_strobe = true;}
     if opt.hpc {use_hpc = true;}
+
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if opt.uhs.is_some() { 
         uhs = true;
@@ -386,10 +388,10 @@ fn main() {
         lcp = true;
         lcp_filename = opt.lcp.unwrap(); 
     } 
+    if opt.f.is_some() {f = opt.f.unwrap()} else {println!("Warning: Using default filter cutoff value ({}).", f);} 
     if opt.s.is_some() { 
         s = opt.s.unwrap(); 
         println!("Syncmer parameter s: {}", s);
-        if opt.f.is_some() {f = opt.f.unwrap()} else {println!("Warning: Using default filter cutoff value ({}).", f);} 
         if opt.wmin.is_some() {wmin = opt.wmin.unwrap()} else {println!("Warning: Using default wmin value ({}).", l/(l-s+1)+2);} 
         if opt.wmax.is_some() {wmax = opt.wmax.unwrap()} else {println!("Warning: Using default wmax value ({}).", l/(l-s+1)+10);} 
 
@@ -436,7 +438,7 @@ fn main() {
     closures::run_mers(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
-    println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);
+    println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0 / 1024.0);
 }
 
 
