@@ -3,6 +3,7 @@ use std::error::Error;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use crate::BufReadDecompressor;
+use histo::Histogram;
 use std::fs::{File};
 use std::sync::{Arc};
 use seq_io::BaseRecord;
@@ -71,6 +72,11 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         let mut frac_index = (params.f * query_mers_index.len() as f64) as usize;
         let mut counts : Vec<usize> = query_mers_index.iter().map(|(ent)| *ent.value()).collect();
         counts.sort_by(|a, b| a.cmp(&b));
+        let mut histogram = Histogram::with_buckets(200);
+        for count in counts.iter() {
+            histogram.add(*count as u64);
+        }
+        println!("{}", histogram);
         counts.reverse();
         if params.f >= 1.0 {
             threshold = counts.iter().nth(query_mers_index.len()-1).unwrap().clone();
