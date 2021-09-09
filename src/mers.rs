@@ -229,7 +229,7 @@ pub fn get_randstrobe(i: usize, wmin: usize, wmax: usize, num_hashes: usize, str
     return Some(s);
 }
 
-pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_mers_index: &DashMap<u64, usize>, threshold: usize) -> (usize, Vec<Mer>) {
+pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_mers_index: &DashMap<u64, usize>, ttup: (usize, usize)) -> (usize, Vec<Mer>) {
     let k = params.k;
     let l = params.l;
     let s = params.s;
@@ -243,7 +243,7 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_me
     let q = 2_u64.pow(16) - 1;
     let t = 3;
     let (mut string_hashes, mut pos_to_seq_coord) = extract_mers(seq, params);
-    if read && params.f != 0.0 {string_hashes.retain(|hash| (*query_mers_index.get(&hash).unwrap().value() > 1) && (*query_mers_index.get(&hash).unwrap().value() <= threshold));}
+    if read && params.f != 0.0 {string_hashes.retain(|hash| (*query_mers_index.get(&hash).unwrap().value() > ttup.0) && (*query_mers_index.get(&hash).unwrap().value() <= ttup.1));}
     let num_hashes = string_hashes.len();
     for i in 0..num_hashes {
         let mut kmer_hash : u64 = 0;
@@ -302,7 +302,7 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_me
     return (seq.len(), mers);
 }
 
-pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<String, DashMap<u64, (Mer, usize)>>, l: usize, k: usize) -> Vec<Match> {
+pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_lens: &DashMap<String, usize>, /*mers_index: &DashMap<String, DashMap<u64, (Mer, usize)>>*/ mers_index: &DashMap<u64, (Mer, String)>, l: usize, k: usize) -> Vec<Match> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let mut hit_count_all = 0;
     let mut i = 0;
@@ -312,7 +312,24 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
             let q = query_mers[i];
             let mut h = Hit {query_id: query_id.to_string(), ref_id: String::new(), query_s: q.1, query_e: q.2, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4, query_span: 0, ref_span: 0, query_offset: 0, ref_offset: 0};
             let mut max_extend_offset = 0;
-            for index in mers_index.iter() {
+            let mer_entry = mers_index.get(&q.0);
+            if mer_entry.is_some() {
+                let tup = mer_entry.unwrap();
+                let (mer, ref_id) = tup.value();
+                h.query_offset = q.3;
+                h.ref_offset = mer.3;
+                h.ref_id = ref_id.to_string();
+                h.ref_s = mer.1;
+                h.query_e = q.2;
+                h.ref_e = mer.2;
+                h.hit_count += 1;
+                h.is_rc = q.4;
+                h.query_span = h.query_e - h.query_s + 1; 
+                h.ref_span = h.ref_e - h.ref_s + 1; 
+                hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
+                hit_count_all += 1; 
+            }
+            /*for index in mers_index.iter() {
                 let ref_id = index.key().to_string();
                 let ref_mer_count = index.value();
                 let mer_entry = ref_mer_count.get(&q.0);
@@ -335,7 +352,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
                     hit_count_all += 1;
                 }
 
-            }
+            }*/
         }
         i += 1;
     }

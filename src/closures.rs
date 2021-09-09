@@ -19,11 +19,13 @@ use crate::{get_reader, hash_id};
 use indicatif::ProgressBar;
 
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
-    let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
+    //let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
+    let mers_index : Arc<DashMap<u64, (Mer, String)>> =  Arc::new(DashMap::new());
     let query_mers_index : Arc<DashMap<u64, usize>> =  Arc::new(DashMap::new());
     let mut all_matches = Vec::<(Vec<Match>, String)>::new();
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
-    let mut threshold = 0;
+    let mut threshold_max = 0;
+    let mut threshold_min = u64::max_value();
     let mut paf_file = match File::create(&path) {
         Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
         Ok(paf_file) => paf_file,
@@ -79,21 +81,39 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         println!("{}", histogram);
         counts.reverse();
         if params.f >= 1.0 {
-            threshold = counts.iter().nth(query_mers_index.len()-1).unwrap().clone();
+            threshold_max = counts.iter().nth(query_mers_index.len()-1).unwrap().clone();
 
         }
         else {
-            threshold = counts.iter().nth(frac_index).unwrap().clone();
+            threshold_max = counts.iter().nth(frac_index).unwrap().clone();
+        }
+        let mut prev_count = u64::max_value();
+        for bucket in histogram.buckets() {
+            if  bucket.count() < prev_count {
+                threshold_min = bucket.end();
+                prev_count = bucket.count();
+            }
+            else {break;}
         }
     }
-    println!("Removed top {}% fraction of {} k-mers (count <= {}).", params.f*100.0, query_mers_index.len(), threshold);
+    println!("Removed top {}% fraction of {} l-mers (count > {}).", params.f*100.0, query_mers_index.len(), threshold_max);
+    println!("Removed likely-erroneous l-mers based on histogram (count < {}).", threshold_min);
 
     let index_mers = |seq_id: &str, seq: &[u8], params: &Params, read: bool| -> (usize, Vec<Mer>) {
-        let (seq_len, mut mers) = mers::seq_to_kmers(seq, seq_id, params, read, &query_mers_index, threshold);
+        let (seq_len, mut mers) = mers::seq_to_kmers(seq, seq_id, params, read, &query_mers_index, (threshold_min as usize, threshold_max as usize));
         if read == true {
             lens.insert(seq_id.to_string(), seq_len);
         }
         else {
+            for mer in mers.iter() {
+                if mers_index.get_mut(&mer.0).is_some() {
+                    mers_index.remove(&mer.0);
+                }
+                else {mers_index.insert(mer.0, (*mer,  seq_id.to_string()));}
+            }
+            lens.insert(seq_id.to_string(), seq_len);
+        }
+        /*else {
             mers_index.insert(seq_id.to_string(), DashMap::new());
             mers.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
             let mut prev_mer = mers[0];
@@ -111,7 +131,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
                 prev_mer = curr_mer;
             }  
             lens.insert(seq_id.to_string(), seq_len);
-        }
+        }*/
         return (seq_len, mers);
     };
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
