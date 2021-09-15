@@ -18,7 +18,7 @@ Clone the repository (make sure you have a working Rust environment), and run
 
 ```
 cargo build --release
-target/release/hifimap reads-0.00.fa.gz reference.fa
+target/release/hifimap <reads.fq> --reference <reference.fa> -k 5 -d 0.05 -l 12 -f 0 
 ```
 
 ## Input
@@ -35,9 +35,13 @@ to format reads accordingly.
 
 ## Running an example
 
-A sample set of reads is provided in the `example/` folder. Run
+A sample set of reads and a reference are provided in the `example/` folder. To run `hifimap` on it, type:
 
-`target/release/hifimap reads-0.00.fa.gz reference.fa`
+```
+cargo build --release
+cd example
+../target/release/hifimap pbsim-ecoli.10X.100k.fa --reference  ecoli.genome.100k.fa -k 5 -d 0.05 -l 12 -f 0 
+```
 
 ## Parameters
 
