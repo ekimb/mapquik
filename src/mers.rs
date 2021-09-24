@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use super::Params;
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool);
-pub type Mer = (u64, usize, usize, usize, bool);
+pub type Mer = (u64, usize, usize, usize, bool, usize);
 #[derive(Clone, Debug)]
 pub struct Hit {
     query_id: String,
@@ -24,6 +24,7 @@ pub struct Hit {
     ref_span: usize,
     query_offset: usize,
     ref_offset: usize,
+    count: usize,
 
 }
 
@@ -92,7 +93,7 @@ pub fn extract_mers(seq: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
     let wmax = params.wmax;
     let smask : u64 = ((1 as u64) << 2*s) - 1;
     let lmask : u64 = ((1 as u64) << 2*l) - 1;
-    let t = 3;
+    let t = f64::ceil((params.l - params.s + 1) as f64 / 2.0) as usize;
     let mut hash_count = 0;
     let mut seq_hashes = Vec::new();
     let mut pos_to_seq_coord = Vec::new();
@@ -251,25 +252,37 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_me
         let mut kmer_start = 0;
         let mut kmer_end = 0;
         let mut reverse = false;
+        let mut lmer_counts = Vec::<usize>::new();
         if i + k - 1 < num_hashes {
             //if read && (string_hashes[i+k-1] < string_hashes[i]) {reverse = true;}
             for j in i..i+k {
+                if read {lmer_counts.push(*query_mers_index.get(&string_hashes[j]).unwrap().value());}
                 if params.use_strobe {
                     let s = get_randstrobe(j, wmin, wmax, num_hashes, &string_hashes, &pos_to_seq_coord, q);
                     if s.is_none() {break;}
                     let s_unw = s.unwrap();
-                    kmer_hash += s_unw.0;
+                    kmer_hash += s_unw.0 / (j - i + 1) as u64;
+                    kmer_hash_rev += s_unw.0 / (k-(j-i)) as u64;
                     if j == i + k - 1 {kmer_end = s_unw.2;}
                 }
                 else {
-                    kmer_hash += string_hashes[j];
+                    //println!("kmer hash {}", kmer_hash);
+                    //println!("hash {}\tj {}\tdiv {}", string_hashes[j], j,(string_hashes[j]) / (j-i+1) as u64);
+                    kmer_hash += (string_hashes[j]) / (j-i+1) as u64;
+                    kmer_hash_rev += (string_hashes[j]) / (k-(j-i)) as u64;
+                    //println!("new kmer hash {}", kmer_hash);
                 }
             }
-                kmer_start = pos_to_seq_coord[i];
-                kmer_end = pos_to_seq_coord[i + k - 1];
+            kmer_start = pos_to_seq_coord[i];
+            kmer_end = pos_to_seq_coord[i + k - 1];
         }
         if kmer_end != 0 {
-            mers.push((kmer_hash, kmer_start, kmer_end + l, i, false));
+            let sum = lmer_counts.iter().sum::<usize>();
+            let m : f64 = lmer_counts.iter().sum::<usize>() as f64 / k as f64;
+            let lmer_var = lmer_counts.iter().map(|c| f64::abs(*c as f64 - m).powf(2.0)).sum::<f64>() as f64 / k as f64;
+            //println!("Kminmer: {}, Mean: {}, Variance: {}", i, m, lmer_var);
+            mers.push((kmer_hash, kmer_start, kmer_end + l, i, false, sum));
+            if read {mers.push((kmer_hash_rev, seq.len() - kmer_end - l, seq.len() - kmer_start, i, true, sum));}
         }   
     }
     /*if read {
@@ -302,33 +315,31 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_me
     return (seq.len(), mers);
 }
 
-pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_lens: &DashMap<String, usize>, /*mers_index: &DashMap<String, DashMap<u64, (Mer, usize)>>*/ mers_index: &DashMap<u64, (Mer, String)>, l: usize, k: usize) -> Vec<Match> {
+pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_lens: &DashMap<String, usize>, query_mers_index: &DashMap<u64, usize>, mers_index: &DashMap<u64, Vec<(Mer, String)>>, l: usize, k: usize) -> Vec<Match> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let mut hit_count_all = 0;
     let mut i = 0;
     let mut i_rev = 0;
     while i < query_mers.len() {
-        if i < query_mers.len() {
-            let q = query_mers[i];
-            let mut h = Hit {query_id: query_id.to_string(), ref_id: String::new(), query_s: q.1, query_e: q.2, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4, query_span: 0, ref_span: 0, query_offset: 0, ref_offset: 0};
-            let mut max_extend_offset = 0;
-            let mer_entry = mers_index.get(&q.0);
-            if mer_entry.is_some() {
-                let tup = mer_entry.unwrap();
-                let (mer, ref_id) = tup.value();
-                h.query_offset = q.3;
+        let q = query_mers[i];
+        let mut h = Hit {query_id: query_id.to_string(), ref_id: String::new(), query_s: q.1, query_e: q.2, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4, query_span: 0, ref_span: 0, query_offset: q.3, ref_offset: 0, count: q.5};
+        let mut max_extend_offset = 0;
+        let mer_entry = mers_index.get(&q.0);
+        if mer_entry.is_some() {
+            for (mer, ref_id) in mer_entry.unwrap().iter() {
                 h.ref_offset = mer.3;
                 h.ref_id = ref_id.to_string();
                 h.ref_s = mer.1;
-                h.query_e = q.2;
                 h.ref_e = mer.2;
-                h.hit_count += 1;
-                h.is_rc = q.4;
+                h.hit_count = 1;
                 h.query_span = h.query_e - h.query_s + 1; 
-                h.ref_span = h.ref_e - h.ref_s + 1; 
+                h.ref_span = h.ref_e - h.ref_s + 1;
+                //if h.query_span != h.ref_span {i += 1; continue;}
                 hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
                 hit_count_all += 1; 
-            }
+                //println!("{:?}", h);
+            }         
+        }
             /*for index in mers_index.iter() {
                 let ref_id = index.key().to_string();
                 let ref_mer_count = index.value();
@@ -353,7 +364,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
                 }
 
             }*/
-        }
         i += 1;
     }
     let mut final_matches = Vec::<Match>::new();
@@ -367,6 +377,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
         let mut max_rc_mapping = 0;
         let mut max_rc_mapping_score = 0;
         let ref_id = key;
+        let mut rc = false;
         let mut hits_raw = val.to_vec();
         let ref_len = *ref_lens.get(&ref_id).unwrap().value();
             //println!("_____________________{} to {}_____________\nRC", query_id, ref_id);
@@ -395,7 +406,8 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
         let mut max_fwd_off = 0;
         let mut max_rc_off = 0;
         let mut curr_dir = true;
-        if hits_raw.len() != 0 {
+        //for hit in hits_raw.iter() {println!("{:?}", hit);}
+        /*if hits_raw.len() != 0 {
             let mut prev_dir = true;
             if hits_raw.len() > 1 {
                 prev_dir = (hits_raw[1].ref_offset >= hits_raw[0].ref_offset);
@@ -437,21 +449,43 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
             }
             prev_offset = curr_offset;
         }
-        let mut hits = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1;
+        let mut hits = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1;*/
+        let mut hits = hits_raw.clone();
+        let mut sum : usize = hits.iter().map(|h| h.ref_offset).sum();
+        let mut m = sum as f64 / hits.len() as f64;
+        let mut sd = f64::sqrt(hits.iter().map(|c| f64::abs(c.ref_offset as f64 - m).powf(2.0)).sum::<f64>() / (hits.len() as f64));
+        let mut sc_sum : usize = hits.iter().map(|h| h.count).sum();
+        let mut sm = sc_sum as f64 / hits.len() as f64;
+        let mut ssd = f64::sqrt(hits.iter().map(|c| f64::abs(c.count as f64 - sm).powf(2.0)).sum::<f64>() / (hits.len() as f64));
+        hits.reverse();
+        let mut lhits = hits.clone();
+        for i in 0..lhits.len() {
+            let hit = &lhits[i];
+            let s = f64::abs((hit.count as f64 - sm) / ssd);
+            let z = f64::abs((hit.ref_offset as f64 - m) / sd);
+            if s >= 1.0 && z >= 1.0 {
+                println!("S {}\tZ {}\tHit {:?}", s, z, hit);
+                hits.retain(|h| h.ref_offset != hit.ref_offset);
+            }
+        }
+        let mut rc_count = hits.iter().filter(|h| h.is_rc).collect::<Vec<&Hit>>().len();
+        let mut fwd_count = hits.iter().filter(|h| !h.is_rc).collect::<Vec<&Hit>>().len();
+        if rc_count > fwd_count {hits.retain(|h| h.is_rc); rc = true;}
+        else {hits.retain(|h| !h.is_rc); rc = false;}
+        //for hit in hits.iter() {println!("{:?}", hit);}
+        if hits.is_empty() {continue;}
         let mut final_ref_s = hits[0].ref_s;
         let mut final_ref_e = hits[hits.len()-1].ref_e;
+        //println!("s {}\te {}\trc {}", final_ref_s, final_ref_e, rc);
+        if final_ref_s > final_ref_e {let mut temp = final_ref_e; final_ref_e = final_ref_s; final_ref_s = temp;}
         let mut final_query_s = hits[0].query_s;
         let mut final_query_e = hits[hits.len()-1].query_e;
-        if filtered_hits_rc.len() > filtered_hits_fwd.len() {
-            final_ref_s = hits[hits.len()-1].ref_s;
-            final_ref_e = hits[0].ref_e;
-        }
-        let mut score = (final_ref_e - final_ref_s) / hits.len();
-        if final_ref_s > final_query_s {
+        let mut score = hits.len();
+       /* if final_ref_s > final_query_s {
             final_ref_s -= final_query_s;
             final_query_s = 0;
-        }
-        if final_ref_e - final_query_s > query_len {
+        }*/
+       /* if final_ref_e - final_query_s > query_len {
             let excess_add = query_len / 2;
             if final_ref_s > excess_add {final_ref_s -= excess_add;}
             else {final_ref_s = 0;}
@@ -461,13 +495,13 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
             else {final_query_s = 0;}
             if query_len - final_query_e > excess_add {final_query_e += excess_add;}
             else {final_query_e = query_len;}
-        }
+        }*/
         let ref_id = &hits[0].ref_id;
-        if filtered_hits_fwd.len() > filtered_hits_rc.len() && hits.len() > 1 {
+        if !rc && hits.len() > 1 {
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, false);
             final_matches.push(v);
         }
-        else if filtered_hits_rc.len() > filtered_hits_fwd.len() && hits.len() > 1 {
+        else if rc && hits.len() > 1 {
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, true);
             final_matches.push(v);
         }

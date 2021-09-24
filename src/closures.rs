@@ -20,7 +20,7 @@ use indicatif::ProgressBar;
 
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
     //let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
-    let mers_index : Arc<DashMap<u64, (Mer, String)>> =  Arc::new(DashMap::new());
+    let mers_index : Arc<DashMap<u64, Vec<(Mer, String)>>> =  Arc::new(DashMap::new());
     let query_mers_index : Arc<DashMap<u64, usize>> =  Arc::new(DashMap::new());
     let mut all_matches = Vec::<(Vec<Match>, String)>::new();
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
@@ -62,7 +62,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         None::<()>
     };
     let buf = get_reader(&filename);
-    if params.f != 1.0 {
+    if params.f != 0.0 {
         if fasta_reads {
             let reader = seq_io::fasta::Reader::new(buf); 
             read_process_fasta_records(reader, threads as u32, queue_len, query_count_read_fasta_mer, |record, found| {count_thread_mer(found)});
@@ -80,13 +80,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         }
         println!("{}", histogram);
         counts.reverse();
-        if params.f >= 1.0 {
-            threshold_max = counts.iter().nth(query_mers_index.len()-1).unwrap().clone();
-
-        }
-        else {
-            threshold_max = counts.iter().nth(frac_index).unwrap().clone();
-        }
+        threshold_max = counts.iter().nth(frac_index).unwrap().clone();
         let mut prev_count = u64::max_value();
         for bucket in histogram.buckets() {
             if  bucket.count() < prev_count {
@@ -106,10 +100,16 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         }
         else {
             for mer in mers.iter() {
-                if mers_index.get_mut(&mer.0).is_some() {
-                    mers_index.remove(&mer.0);
+                let mut entry =  mers_index.get_mut(&mer.0);
+                if entry.is_some() {
+                    let mut e = entry.unwrap();
+                    let mut match_kmer = e.value().iter().find(|x| x.1 == seq_id);
+                    if match_kmer.is_some() {continue;}
+                    else {
+                        e.push((*mer, seq_id.to_string()));
+                    }
                 }
-                else {mers_index.insert(mer.0, (*mer,  seq_id.to_string()));}
+                else {mers_index.insert(mer.0, vec![(*mer,  seq_id.to_string())]);}
             }
             lens.insert(seq_id.to_string(), seq_len);
         }
@@ -157,7 +157,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<Match>, String)> {
         let mut output = Vec::<Match>::new();
         let (seq_len, mers) = index_mers(seq_id, seq_str, params, true);
-        output = mers::find_hits(&seq_id, seq_len, &mers, &lens, &mers_index, params.l, params.k);
+        output = mers::find_hits(&seq_id, seq_len, &mers, &lens, &query_mers_index, &mers_index, params.l, params.k);
         if output.len() > 0 {
             return Some((output, seq_id.to_string()))
         }
