@@ -1,9 +1,12 @@
+# doesn't work, pbsim (i tested version 1) always adds some errors, so it can't simulate exactly perfect reads
+
 # simulate perfect reads using pbsim
 
 /pasteur/sonic/homes/rchikhi/tools/PBSIM-PacBio-Simulator/src/pbsim \
        ecoli.genome.100k.fa \
-       --model_qc  /pasteur/sonic/homes/rchikhi/tools/PBSIM-PacBio-Simulator/data/model_qc_ccs \
-       --accuracy-mean 1\
+       --model_qc  /pasteur/sonic/homes/rchikhi/tools/PBSIM-PacBio-Simulator/data/model_qc_clr \
+       --accuracy-mean 1.0\
+       --accuracy-sd 0\
        --depth 10\
        --prefix perfect-ecoli.10X.100k
 

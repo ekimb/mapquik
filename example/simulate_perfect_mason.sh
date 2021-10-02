@@ -1,7 +1,10 @@
-# simulate perfect reads using mason
-
-# crashes..  length(intervals) == 1u was: 0 != 1
+# doesn't work. mason crashes.
+# "length(intervals) == 1u was: 0 != 1"
 # and dunno how to fix
+
+# if it worked:
+
+# simulate perfect reads using mason
 
 mason_simulator  \
                --fragment-size-model normal \
