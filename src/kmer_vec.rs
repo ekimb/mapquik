@@ -1,59 +1,60 @@
-use super::revcomp_aware;
 use std::hash::{Hash, Hasher};
 use std::vec::Vec;
 use std::cmp::Ordering;
 
 #[derive(Clone, Debug)]
 pub struct KmerVec {
-    data: Vec<u64>
+    pub hashes: Vec<u64>,
+    pub start: usize,
+    pub end: usize,
+    pub offset: usize
 }
 
 pub fn get(a: &KmerVec) -> Vec<u64> {
-    a.data.to_vec()
+    a.hashes.to_vec()
 }
 
 impl KmerVec {
     pub fn suffix(&self) -> KmerVec {
-        let mut res = KmerVec {data: self.data.clone()};
-        res.data.remove(0);
+        let mut res = KmerVec {hashes: self.hashes.clone(), start: self.start, end: self.end, offset: self.offset};
+        res.hashes.remove(0);
         res
     }
     
     pub fn prefix(&self) -> KmerVec {
-        let mut res = KmerVec {data: self.data.clone()};
-        res.data.pop();
+        let mut res = KmerVec {hashes: self.hashes.clone(), start: self.start, end: self.end, offset: self.offset};
+        res.hashes.pop();
         res
     }
     
     pub fn reverse(&self) -> KmerVec {
-        let mut res = KmerVec {data: self.data.clone()};
-        res.data.reverse();
+        let mut res = KmerVec {hashes: self.hashes.clone(), start: self.start, end: self.end, offset: self.offset};
+        res.hashes.reverse();
         res
     }
 
     pub fn normalize(&self) -> (KmerVec,bool) {
-        if !revcomp_aware {return (self.clone(), false)}
         let rev = self.reverse();
         if *self < rev {(self.clone(), false)}
         else {(rev, true)}
     }
 
-    pub fn make_from(ar: &[u64]) -> KmerVec {
-        KmerVec{data: Vec::from(ar)}
+    pub fn make_from(ar: &[u64], s: usize, e: usize, o: usize) -> KmerVec {
+        KmerVec{hashes: Vec::from(ar), start: s, end: e, offset: o}
     }
 
     pub fn print_as_string(&self) -> String {
-        format!("{:?}", &self.data)
+        format!("{:?}", &self.hashes)
     }
 
     pub fn minimizers(&self) -> &Vec<u64> {
-        &self.data
+        &self.hashes
     }
 }
 
 impl PartialEq for KmerVec {
     fn eq(&self, other: &KmerVec) -> bool {
-        self.data == other.data
+        self.hashes == other.hashes
     }
 }
 
@@ -62,17 +63,17 @@ impl Eq for KmerVec {
 
 impl Hash for KmerVec {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.data.hash(state);
+        self.hashes.hash(state);
     }
 }
 
 impl Default for KmerVec {
-    fn default() -> Self{KmerVec{data: vec![]}}
+    fn default() -> Self{KmerVec{hashes: vec![], start: 0, end: 0, offset: 0}}
 }
 
 impl Ord for KmerVec {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.data.cmp(&other.data)
+        self.hashes.cmp(&other.hashes)
     }
 }
 

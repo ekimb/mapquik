@@ -25,3 +25,6 @@ Cargo.lock
 src/graph.py
 compute_err.py
 .DS_Store
+example/model_qc_clr
+.gitignore
+example/nearperfect-ecoli*
