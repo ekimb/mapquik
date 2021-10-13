@@ -469,6 +469,18 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
         }
     }
     if ori.len() > 0 {
+        if rc {
+            r_end += (q_start - kmers_rev[kmers_rev.len() - 1].start);
+            r_start -= (kmers_rev[0].end - q_end);
+            q_start = kmers_rev[kmers_rev.len() - 1].start;
+            q_end = kmers_rev[0].end;
+        }
+        else {
+            r_start -= (q_start - kmers[0].start);
+            r_end += (kmers[kmers.len() - 1].end - q_end);
+            q_start = kmers[0].start;
+            q_end = kmers[kmers.len() - 1].end; 
+        }
         let mut score = lengths.iter().max().unwrap();
         let v = (seq_id.to_string(), ori.to_string(), seq.len(), *lens.get(&ori).unwrap().value(), q_start, q_end, r_start, r_end, *score, rc);
         println!("{:?}", v);

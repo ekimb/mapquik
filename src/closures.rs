@@ -140,13 +140,19 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         let output_rev = mers::new_query_graph(&seq_id, seq_str, &params, &dbg_nodes, &dbg_edges, &lens, true, &query_mers_index, (fmin, fmax));
         if output.8 > output_rev.8 {return Some((output, seq_id.to_string()));}
         else if output.8 < output_rev.8 {return Some((output_rev, seq_id.to_string()));} 
-        else if (output.5 as i32 - output.4 as i32) > (output_rev.5 as i32 - output_rev.4 as i32) {
-            if output.5 == 0 {return None;}
-            return Some((output, seq_id.to_string()));
-        }
         else {
-            if output_rev.5 == 0 {return None;}
-            return Some((output_rev, seq_id.to_string()));
+           if (output.5 as i32 - output.4 as i32) > (output_rev.5 as i32 - output_rev.4 as i32) {
+               if output.5 != 0 {
+                return Some((output, seq_id.to_string()));
+               }
+               else {return None;}
+            }
+            else {
+                if output_rev.5 != 0 {
+                    return Some((output_rev, seq_id.to_string()));
+                }
+                else {return None;}
+            }
         }
 
     };
