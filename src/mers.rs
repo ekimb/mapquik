@@ -442,7 +442,7 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
             //println!("{}\t{:?}", seq_id, kmer);
             ori = node.as_ref().unwrap().origin[0].to_string();
             let (mut last_node, mut depth) = edge_util(&node.as_ref().unwrap()
-            , dbg_nodes, dbg_edges, count, &mut visited, &kmers, &kmers_rev, rc, 0);
+            , dbg_nodes, dbg_edges, count, &mut visited, &kmers, &kmers_rev, rc, 1);
             lengths.push(depth);
             if !first_done {
                 q_start = kmer.start;
@@ -451,7 +451,7 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
                 r_end = last_node.mers[0].end;
                 first_done = true;
             }
-            else if ((last_node.mers[0].end as i32 - r_end as i32).abs() > 0 && (last_node.mers[0].end as i32 - r_end as i32).abs() < 1000) {
+            else if ((last_node.mers[0].end as i32 - r_end as i32).abs() > 0 && (last_node.mers[0].end as i32 - r_end as i32).abs() < 100) {
                 if rc {
                     r_end = last_node.mers[0].end; 
                     q_start = kmers_rev[count].start;
