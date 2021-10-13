@@ -402,15 +402,16 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool, query_mer
 pub fn edge_util(node: &DbgEntry, dbg_nodes: &DashMap<Vec<u64>, DbgEntry>, dbg_edges: &DashMap<DbgIndex, Vec<Kmer>>, mut count: usize, visited: &mut Vec<DbgIndex>, kmers: &Vec<Kmer>, kmers_rev: &Vec<Kmer>, rc: bool, mut depth: usize) -> (DbgEntry, usize){
     visited.push(node.index);
     //println!("{}", count);
+    if count == kmers.len() - 1 {return (node.clone(), depth)}
     let mut origin_eq = &node.origin.clone();
     let edges = dbg_edges.get(&node.index);
     if edges.is_some() {
         for out in edges.unwrap().iter() {
-            let out_node = dbg_nodes.get(&out.hashes);
+            let out_node = dbg_nodes.get(&out.normalize().0.hashes);
             if count == kmers.len() - 1 {return (node.clone(), depth)}
             let mut kmer = kmers[count+1].clone();
             if rc {kmer = kmers_rev[count + 1].clone();}
-            if &out_node.as_ref().unwrap().origin == origin_eq && out_node.as_ref().unwrap().abundance == 1 && !visited.contains(&out_node.as_ref().unwrap().index) && out_node.as_ref().unwrap().mers[0] == kmer {
+            if &out_node.as_ref().unwrap().origin == origin_eq && out_node.as_ref().unwrap().abundance == 1 && !visited.contains(&out_node.as_ref().unwrap().index) && out_node.as_ref().unwrap().mers[0].normalize().0.hashes == kmer.normalize().0.hashes {
                 count += 1;
                 depth += 1;
                 return edge_util(out_node.unwrap().value(), dbg_nodes, dbg_edges, count, visited, &kmers, &kmers_rev, rc, depth);
@@ -438,7 +439,7 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
         if rc {kmer = kmers_rev[count].clone();}
         let mut node = dbg_nodes.get(&kmer.normalize().0.hashes);
         if node.is_some() && node.as_ref().unwrap().abundance == 1 {
-            //println!("{:?}", kmer);
+            //println!("{}\t{:?}", seq_id, kmer);
             ori = node.as_ref().unwrap().origin[0].to_string();
             let (mut last_node, mut depth) = edge_util(&node.as_ref().unwrap()
             , dbg_nodes, dbg_edges, count, &mut visited, &kmers, &kmers_rev, rc, 0);
@@ -450,7 +451,7 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
                 r_end = last_node.mers[0].end;
                 first_done = true;
             }
-            if ((last_node.mers[0].end as i32 - r_end as i32) > 0 && (last_node.mers[0].end as i32 - r_end as i32) < 100) {
+            else if ((last_node.mers[0].end as i32 - r_end as i32).abs() > 0 && (last_node.mers[0].end as i32 - r_end as i32).abs() < 1000) {
                 if rc {
                     r_end = last_node.mers[0].end; 
                     q_start = kmers_rev[count].start;
