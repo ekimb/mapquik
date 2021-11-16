@@ -483,7 +483,7 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
         }
         let mut score = lengths.iter().max().unwrap();
         let v = (seq_id.to_string(), ori.to_string(), seq.len(), *lens.get(&ori).unwrap().value(), q_start, q_end, r_start, r_end, *score, rc);
-        println!("{:?}", v);
+        //println!("{:?}", v);
         return v;
     }
     else {
@@ -680,7 +680,10 @@ pub fn output_paf(all_matches: &Vec<(Match, String)>, paf_file: &mut File) {
         let ref_e = v.7;
         let score = v.8;
         let rc : String = match v.9 {true => "-".to_string(), false => "+".to_string()};
-        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, query_s, query_e, rc, ref_id, ref_len, ref_s, ref_e, score, ref_len, "255");
+        let mut q = 60;
+        if score == 1 {q = 0;} 
+        if score == 0 {continue;}
+        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, query_s, query_e, rc, ref_id, ref_len, ref_s, ref_e, score, ref_len, q);
         write!(paf_file, "{}", paf_line).expect("Error writing line.");
     }
 }
