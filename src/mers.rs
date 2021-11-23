@@ -264,7 +264,7 @@ pub fn extract_mers(seq: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
                 let hash_l = hash(yl, lmask);
                 if hash_l <= hash_bound {
                     seq_hashes.push(hash_l);
-                    pos_to_seq_coord.push(i);
+                    pos_to_seq_coord.push(i - l + 1);
                 }
             }
         } else {
@@ -338,10 +338,10 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool, query_mer
     let mut pos_to_seq_coord = Vec::new();
     if !read {
         for i in 0..string_hashes_raw.len() {
-            if query_mers_index.get(&string_hashes_raw[i]).is_some() {
+           // if query_mers_index.get(&string_hashes_raw[i]).is_some() {
                 string_hashes.push(string_hashes_raw[i]);
                 pos_to_seq_coord.push(pos_to_seq_coord_raw[i]);
-            }
+           // }
         }
     }
     else {
