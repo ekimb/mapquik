@@ -13,7 +13,8 @@ reads=nearperfect-ecoli.10X
        --accuracy-mean 0.99\
        --accuracy-sd 0\
        --depth 10\
-       --prefix $reads
+       --prefix $reads\
+       --length-mean 12000 #hifi
 
 #paftools.js pbsim2fq <ref.fa.fai> <pbsim1.maf> [[pbsim2.maf] ...]
 paftools.js pbsim2fq $ref.fai "$reads"_000*.maf > $reads.fa
