@@ -13,9 +13,9 @@ pub fn add_kminmers(seq_id: &str, ref_mers: &Vec<Kmer>, dbg_nodes: &DashMap<Vec<
     for i in 0..ref_mers.len() {
         let mut cur_node_index: DbgIndex = 0 as DbgIndex;
         let mut contains_key;
-        contains_key = dbg_nodes.contains_key(&ref_mers[i].normalize().0.hashes);
+        contains_key = dbg_nodes.contains_key(&ref_mers[i].hashes);
         if contains_key {
-            let mut entry_mut = dbg_nodes.get_mut(&ref_mers[i].normalize().0.hashes).unwrap();
+            let mut entry_mut = dbg_nodes.get_mut(&ref_mers[i].hashes).unwrap();
             cur_node_index = entry_mut.index;
             entry_mut.abundance += 1;
             if !entry_mut.origin.contains(&seq_id.to_string()) {
@@ -25,7 +25,7 @@ pub fn add_kminmers(seq_id: &str, ref_mers: &Vec<Kmer>, dbg_nodes: &DashMap<Vec<
         }
         else {
             cur_node_index = NODE_INDEX.fetch_add(1, Ordering::Relaxed) as DbgIndex;
-            dbg_nodes.insert(ref_mers[i].normalize().0.hashes.clone(), DbgEntry{index: cur_node_index, abundance: 1, mers: vec![ref_mers[i].clone()], origin: vec![seq_id.to_string()]}); 
+            dbg_nodes.insert(ref_mers[i].hashes.clone(), DbgEntry{index: cur_node_index, abundance: 1, mers: vec![ref_mers[i].clone()], origin: vec![seq_id.to_string()]}); 
             contains_key = true;
         }
         if i < ref_mers.len() - 1 {

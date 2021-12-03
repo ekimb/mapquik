@@ -353,10 +353,13 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool, query_mer
         }
     }
     let num_hashes = string_hashes.len();
+
     let mut string_hashes_rev = string_hashes.clone();
-    string_hashes_rev.reverse();
     let mut pos_to_seq_coord_rev = pos_to_seq_coord.clone();
-    pos_to_seq_coord_rev.reverse();
+    if read {
+        string_hashes_rev.reverse();
+        pos_to_seq_coord_rev.reverse();
+    }
     for i in 0..num_hashes {
         let mut kmer_hashes : Vec<u64> = Vec::new();
         let mut kmer_hashes_rev : Vec<u64> = Vec::new();
@@ -377,22 +380,25 @@ pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool, query_mer
                 }
                 else {
                     kmer_hashes.push(string_hashes[j]);
-                    kmer_hashes_rev.push(string_hashes_rev[j]);
+                    if read {kmer_hashes_rev.push(string_hashes_rev[j]);}
                 }
             }
-            kmer_start_rev = pos_to_seq_coord_rev[i];
-            kmer_end_rev = pos_to_seq_coord_rev[i + k - 1];
+            if read {
+                kmer_start_rev = pos_to_seq_coord_rev[i];
+                kmer_end_rev = pos_to_seq_coord_rev[i + k - 1];
+            }
             kmer_start = pos_to_seq_coord[i];
             kmer_end = pos_to_seq_coord[i + k - 1];
         }
         if kmer_end != 0 {
             let kmer = KmerVec::make_from(&kmer_hashes, kmer_start, kmer_end, i);
-            let kmer_rev = KmerVec::make_from(&kmer_hashes_rev,  kmer_end_rev, kmer_start_rev, i);
+            
            // let (norm, rev) = kmer.normalize();
-            mers.push(kmer.clone());
+            mers.push(kmer.normalize().0.clone());
 
             if read {
-                mers_rev.push(kmer_rev);
+                let kmer_rev = KmerVec::make_from(&kmer_hashes_rev,  kmer_end_rev, kmer_start_rev, i);
+                mers_rev.push(kmer_rev.normalize().0.clone());
             }
         }   
     }
@@ -407,11 +413,11 @@ pub fn edge_util(node: &DbgEntry, dbg_nodes: &DashMap<Vec<u64>, DbgEntry>, dbg_e
     let edges = dbg_edges.get(&node.index);
     if edges.is_some() {
         for out in edges.unwrap().iter() {
-            let out_node = dbg_nodes.get(&out.normalize().0.hashes);
+            let out_node = dbg_nodes.get(&out.hashes);
             if count == kmers.len() - 1 {return (node.clone(), depth)}
             let mut kmer = kmers[count+1].clone();
             if rc {kmer = kmers_rev[count + 1].clone();}
-            if &out_node.as_ref().unwrap().origin == origin_eq && out_node.as_ref().unwrap().abundance == 1 && !visited.contains(&out_node.as_ref().unwrap().index) && out_node.as_ref().unwrap().mers[0].normalize().0.hashes == kmer.normalize().0.hashes {
+            if &out_node.as_ref().unwrap().origin == origin_eq && out_node.as_ref().unwrap().abundance == 1 && !visited.contains(&out_node.as_ref().unwrap().index) && out_node.as_ref().unwrap().mers[0].hashes == kmer.hashes {
                 count += 1;
                 depth += 1;
                 return edge_util(out_node.unwrap().value(), dbg_nodes, dbg_edges, count, visited, &kmers, &kmers_rev, rc, depth);
@@ -437,43 +443,50 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
     while count < kmers.len() {
         let mut kmer = kmers[count].clone();
         if rc {kmer = kmers_rev[count].clone();}
-        let mut node = dbg_nodes.get(&kmer.normalize().0.hashes);
+        let mut node = dbg_nodes.get(&kmer.hashes);
+        let mut cur_depth = 1;
         if node.is_some() && node.as_ref().unwrap().abundance == 1 {
             //println!("{}\t{:?}", seq_id, kmer);
             ori = node.as_ref().unwrap().origin[0].to_string();
             let (mut last_node, mut depth) = edge_util(&node.as_ref().unwrap()
             , dbg_nodes, dbg_edges, count, &mut visited, &kmers, &kmers_rev, rc, 1);
-            lengths.push(depth);
+            cur_depth = depth;
+            if depth != 1 {lengths.push(depth);}
             if !first_done {
-                q_start = kmer.start;
-                q_end = kmer.end;
-                r_start = node.as_ref().unwrap().mers[0].start;
-                r_end = last_node.mers[0].end;
+                if rc {
+                    r_start = last_node.mers[0].start;
+                    q_start = kmers_rev[count].end;
+                    r_end = node.as_ref().unwrap().mers[0].start;
+                    q_end = kmers_rev[count].start;
+                }
+                else {
+                    q_start = kmers[count].start;
+                    q_end = kmers[count].end;
+                    r_start = node.as_ref().unwrap().mers[0].start;
+                    r_end = last_node.mers[0].start;
+                }
+                
                 first_done = true;
             }
             else if ((last_node.mers[0].end as i32 - r_end as i32).abs() > 0 && (last_node.mers[0].end as i32 - r_end as i32).abs() < 100) {
                 if rc {
-                    r_end = last_node.mers[0].end; 
-                    q_start = kmers_rev[count].start;
+                    r_start = last_node.mers[0].end; 
+                    q_end = kmers_rev[count].start;
                 }
                 else {
-                    r_end = last_node.mers[0].end;
+                    r_end = last_node.mers[0].start;
                     q_end = kmers[count].end;
                 }
             } 
-            count += 1;
         }
-        else {
-            count += 1;
-            continue;
-        }
+        count += cur_depth;
     }
     if ori.len() > 0 {
         if rc {
             r_end += (q_start - kmers_rev[kmers_rev.len() - 1].start);
-            r_start -= (kmers_rev[0].end - q_end);
-            q_start = kmers_rev[kmers_rev.len() - 1].start;
-            q_end = kmers_rev[0].end;
+            r_start -= (kmers_rev[0].start - q_end);
+            q_start = kmers_rev[kmers_rev.len() - 1].end;
+            q_end = kmers_rev[0].start;
         }
         else {
             r_start -= (q_start - kmers[0].start);
@@ -481,8 +494,9 @@ pub fn new_query_graph(seq_id: &str, seq: &[u8],  params: &Params, dbg_nodes: &D
             q_start = kmers[0].start;
             q_end = kmers[kmers.len() - 1].end; 
         }
-        let mut score = lengths.iter().max().unwrap();
-        let v = (seq_id.to_string(), ori.to_string(), seq.len(), *lens.get(&ori).unwrap().value(), q_start, q_end, r_start, r_end, *score, rc);
+        let mut score = lengths.iter().sum();
+        //println!("READ {}\tRC {}\tSCORE {}", seq_id, rc, score);
+        let v = (seq_id.to_string(), ori.to_string(), seq.len(), *lens.get(&ori).unwrap().value(), q_start, q_end, r_start, r_end, score, rc);
         //println!("{:?}", v);
         return v;
     }
