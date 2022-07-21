@@ -3,7 +3,6 @@
 *.ec_data
 *.sequences
 *.gfa
-*.fa
 *.uhs
 *.lcp
 *.lcp.gz
@@ -25,3 +24,4 @@ Cargo.lock
 src/graph.py
 compute_err.py
 .DS_Store
+*.out

@@ -1,12 +1,11 @@
 use std::collections::VecDeque;
 use crate::DashMap;
 use crate::File;
-
-
 use std::io::Write;
-
+use crate::kminmer::Kminmer;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use nthash::NtHashIterator;
 use super::Params;
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool);
 pub type Mer = (u64, usize, usize, usize, bool);
@@ -27,339 +26,127 @@ pub struct Hit {
 
 }
 
-const seq_nt4_table: [u8; 256] =
-   [0, 1, 2, 3,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  3, 3, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 0, 4, 1,  4, 4, 4, 2,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  3, 3, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,
-	4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4,  4, 4, 4, 4];
-// copy from http://www.cse.yorku.ca/~oz/hash.html:
-
-pub fn hash(mut key: u64, mask: u64) -> u64 {
-        key = (!key + (key << 21)) & mask;
-        key = key ^ key >> 24;
-        key = ((key + (key << 3)) + (key << 8)) & mask;
-        key = key ^ key >> 14;
-        key = ((key + (key << 2)) + (key << 4)) & mask;
-        key = key ^ key >> 28;
-        key = (key + (key << 31)) & mask;
-        return key;
-}
-
-pub fn update_window(q: &mut VecDeque<u64>, q_pos: &mut VecDeque<usize>, q_min_val: u64, q_min_pos: i32, new_strobe_hashval: u64, i: usize, new_minimizer: bool) -> (u64, i32, bool) {
-    q.pop_front();
-    let popped_index = q_pos.pop_front();
-    q.push_back(new_strobe_hashval);
-    q_pos.push_back(i);
-    let mut min_val = q_min_val;
-    let mut min_pos = q_min_pos;
-    let mut new_minim = new_minimizer;
-    if min_pos == popped_index.unwrap() as i32 {
-        min_val = u64::max_value();
-        min_pos = i as i32;
-        for j in (0..q.len()).rev() {
-            if q[j] < min_val {
-                min_val = q[j];
-                min_pos = q_pos[j] as i32;
-                new_minim = true;
-            }
+pub fn encode_rle(inp_seq: &str) -> (String, Vec<usize>) {
+    let mut prev_char = '#';
+    let mut hpc_seq = String::new();
+    let mut pos_vec = Vec::<usize>::new();
+    let mut prev_i = 0;
+    for (i, c) in inp_seq.chars().enumerate() {
+        if c == prev_char && "ACTGactgNn".contains(c) {continue;}
+        if prev_char != '#' {
+            hpc_seq.push(prev_char);
+            pos_vec.push(prev_i);
+            prev_i = i;
         }
+        prev_char = c;
     }
-    else if new_strobe_hashval < min_val { // the new value added to queue is the new minimum
-        min_val = new_strobe_hashval;
-        min_pos = i as i32;
-        new_minim = true;
-    }
-    (min_val, min_pos, new_minim)
+    hpc_seq.push(prev_char);
+    pos_vec.push(prev_i);
+    (hpc_seq, pos_vec)
 }
 
-pub fn extract_mers(seq: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
+pub fn extract(inp_seq_raw: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
+    let density = params.density;
     let l = params.l;
-    let hash_bound = ((params.density as f64) * 4_usize.pow(l as u32) as f64) as u64; 
-    let s = params.s;
-    let wmin = params.wmin;
-    let wmax = params.wmax;
-    let smask : u64 = ((1 as u64) << 2*s) - 1;
-    let lmask : u64 = ((1 as u64) << 2*l) - 1;
-    let t = 3;
-    let mut hash_count = 0;
-    let mut seq_hashes = Vec::new();
-    let mut pos_to_seq_coord = Vec::new();
-    let mut qs = VecDeque::<u64>::new();
-    let mut qs_pos = VecDeque::<usize>::new();
-    let seq_len = seq.len();
-    let mut qs_size = 0;
-    let mut qs_min_val = u64::max_value();
-    let mut qs_min_pos : i32 = -1;
-    let mut xl : [u64; 2] = [0; 2];
-    let mut xs : [u64; 2] = [0; 2];
-    let mut lp = 0;
-    let lshift : u64 = (l as u64 - 1) * 2;
-    let sshift : u64 = (s as u64 - 1) * 2;
-    for i in 0..seq.len() {
-        let c = seq_nt4_table[seq[i] as usize];
-        if c < 4 {
-            xl[0] = (xl[0] << 2 | c as u64) & lmask;                  // forward strand
-            xl[1] = xl[1] >> 2 | ((3 - c) as u64) << lshift;  // reverse strand
-            xs[0] = (xs[0] << 2 | c as u64) & smask;                  // forward strand
-            xs[1] = xs[1] >> 2 | ((3 - c) as u64) << sshift;  // reverse strand
-            lp += 1;
-            if params.s != 0 { //ksyncmer or kstrobemer
-                if lp >= s {
-                    let ys : u64 = match xs[0] < xs[1]{
-                        true => xs[0],
-                        false => xs[1]
-                    };
-                    let hash_s = hash(ys, smask);
-                    if qs_size < l - s {
-                        qs.push_back(hash_s);
-                        qs_pos.push_back(i - s + 1);
-                        qs_size += 1;
-                    }
-                    else if qs_size == l - s {
-                        qs.push_back(hash_s);
-                        qs_pos.push_back(i - s + 1);
-                        qs_size += 1;
-                        for j in 0..qs_size {
-                            if qs[j] < qs_min_val {
-                                qs_min_val = qs[j];
-                                qs_min_pos = qs_pos[j] as i32;
-                            }
-                        }
-                        if qs_min_pos == qs_pos[t-1] as i32 {
-                            let yl : u64 = match xl[0] < xl[1]{
-                                true => xl[0],
-                                false => xl[1]
-                            };
-                            let hash_l = hash(yl, lmask);
-                            seq_hashes.push(hash_l);
-                            pos_to_seq_coord.push(i - l + 1);
-                            hash_count += 1;
-                        }
-                    }
-                    else {
-                        let mut new_minimizer = false;
-                        let tuple = update_window(&mut qs, &mut qs_pos, qs_min_val, qs_min_pos, hash_s, i - s + 1, new_minimizer);
-                        qs_min_val = tuple.0; qs_min_pos = tuple.1; new_minimizer = tuple.2;
-                        if qs_min_pos == qs_pos[t-1] as i32 { // occurs at t:th position in k-mer
-                            let yl : u64 = match xl[0] < xl[1] {
-                                true => xl[0],
-                                false => xl[1]
-                            };
-                            let hash_l = hash(yl, lmask);
-                            seq_hashes.push(hash_l);
-                            pos_to_seq_coord.push(i - l + 1);
-                            hash_count += 1;
-                        }
-                    }
-                }
-            }
-            else { //kminmer
-                let yl : u64 = match xl[0] < xl[1] {
-                    true => xl[0],
-                    false => xl[1]
-                };
-                let hash_l = hash(yl, lmask);
-                if hash_l <= hash_bound {
-                    seq_hashes.push(hash_l);
-                    pos_to_seq_coord.push(i);
-                    hash_count += 1;
-                }
-            }
-        } else {
-            qs_min_val = u64::max_value();
-            qs_min_pos = -1;
-            lp = 0; xs = [0; 2]; xl = [0; 2];
-            qs_size = 0;
-            qs.clear();
-            qs_pos.clear();
-        }
+    let mut read_minimizers_pos = Vec::<usize>::new();
+    let mut read_transformed = Vec::<u64>::new();
+    let hash_bound = ((density as f64) * (u64::max_value() as f64)) as u64;
+    let mut tup = (String::new(), Vec::<usize>::new());
+    let inp_seq = String::from_utf8(inp_seq_raw.to_vec()).unwrap();
+    let mut seq;
+    if !params.use_hpc {
+        tup = encode_rle(&inp_seq); //get HPC sequence and positions in the raw nonHPCd sequence
+        seq = tup.0; //assign new HPCd sequence as input
     }
-    return (seq_hashes, pos_to_seq_coord)
-} 
+    else {
+        seq = inp_seq;  //already HPCd before so get the raw sequence
+    }
+    if seq.len() < l {
+        return (read_transformed, read_minimizers_pos)
+    }
+    let iter = NtHashIterator::new(seq.as_bytes(), l).unwrap().enumerate().filter(|(_i, x)| *x <= hash_bound);
+    for (i, hash) in iter {
+        if !params.use_hpc {read_minimizers_pos.push(tup.1[i]);} //if not HPCd need raw sequence positions
+        else {read_minimizers_pos.push(i);} //already HPCd so positions are the same
+        read_transformed.push(hash);
+    }
+    return (read_transformed, read_minimizers_pos)
 
-pub fn get_next_strobe(string_hashes: &Vec<u64>, strobe_hashval: u64, w_start: usize, w_end: usize, q: u64) -> (i32, u64) {
-    let mut min_val = u64::max_value();
-    let mut strobe_pos_next = -1;
-    let mut strobe_hashval_next = u64::max_value();
-    for i in w_start..w_end + 1 {
-        let res : u64 = (strobe_hashval + string_hashes[i]) & q;
-        if res < min_val {
-            min_val = res;
-            strobe_pos_next = i as i32;
-            strobe_hashval_next = string_hashes[i];
-        }
-    }
-    return (strobe_pos_next, strobe_hashval_next);
 }
 
-pub fn get_randstrobe(i: usize, wmin: usize, wmax: usize, num_hashes: usize, string_hashes: &Vec<u64>, pos_to_seq_coord: &Vec<usize>, q: u64) -> Option<(u64, usize, usize)> {
-    let strobe_pos_next;
-    let strobe_hashval_next;
-    if i + wmax < num_hashes {
-        let w_start = i + wmin;
-        let w_end = i + wmax;
-        let strobe_hash = string_hashes[i];
-        let tuple = get_next_strobe(string_hashes, strobe_hash, w_start, w_end, q);
-        strobe_pos_next = tuple.0; strobe_hashval_next = tuple.1;
-    }
-    else if (i + wmin + 1 < num_hashes) && (num_hashes <= i + wmax) {
-        let w_start = i + wmin;
-        let w_end = num_hashes - 1;
-        let strobe_hash = string_hashes[i];
-        let tuple = get_next_strobe(string_hashes, strobe_hash, w_start, w_end, q);
-        strobe_pos_next = tuple.0; strobe_hashval_next = tuple.1;
-    }
-    else {return None;}
-    let hash_randstrobe = string_hashes[i]/2 + strobe_hashval_next/3;
-    let seq_pos_strobe1 = pos_to_seq_coord[i];
-    let seq_pos_strobe2 = pos_to_seq_coord[strobe_pos_next as usize];
-    let s = (hash_randstrobe, seq_pos_strobe1, seq_pos_strobe2);
-    return Some(s);
-}
-
-pub fn seq_to_kmers(seq: &[u8], id: &str, params: &Params, read: bool,  query_mers_index: &DashMap<u64, usize>, ttup: (usize, usize)) -> (usize, Vec<Mer>) {
+pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer> {
     let k = params.k;
-    let l = params.l;
-    let s = params.s;
-    let wmin = params.wmin;
-    let wmax = params.wmax;
-    let mut mers = Vec::<Mer>::new();
-    let read_length = seq.len();
-    if read_length < wmax {return (seq.len(), mers);}
-    let lmask : u64 = ((1 as u64) << 2*l) - 1;
-    let smask : u64 = ((1 as u64) << 2*s) - 1;
-    let q = 2_u64.pow(16) - 1;
-    let t = 3;
-    let (mut string_hashes, mut pos_to_seq_coord) = extract_mers(seq, params);
-    if read && params.f != 0.0 {string_hashes.retain(|hash| (*query_mers_index.get(&hash).unwrap().value() > ttup.0) && (*query_mers_index.get(&hash).unwrap().value() <= ttup.1));}
-    let num_hashes = string_hashes.len();
-    for i in 0..num_hashes {
-        let mut kmer_hash : u64 = 0;
-        let mut kmer_hash_rev : u64 = 0;
-        let mut kmer_start = 0;
-        let mut kmer_end = 0;
-        let mut reverse = false;
-        if i + k - 1 < num_hashes {
-            //if read && (string_hashes[i+k-1] < string_hashes[i]) {reverse = true;}
-            for j in i..i+k {
-                if params.use_strobe {
-                    let s = get_randstrobe(j, wmin, wmax, num_hashes, &string_hashes, &pos_to_seq_coord, q);
-                    if s.is_none() {break;}
-                    let s_unw = s.unwrap();
-                    kmer_hash += s_unw.0;
-                    if j == i + k - 1 {kmer_end = s_unw.2;}
-                }
-                else {
-                    kmer_hash += string_hashes[j];
-                }
-            }
-                kmer_start = pos_to_seq_coord[i];
-                kmer_end = pos_to_seq_coord[i + k - 1];
-        }
-        if kmer_end != 0 {
-            mers.push((kmer_hash, kmer_start, kmer_end + l, i, false));
-        }   
+    let mut kminmers = Vec::<Kminmer>::new();
+    for i in 0..(sk.len() - k + 1) {
+        let kminmer = Kminmer::new(&sk[i..i+k], pos[i], pos[i + k - 1], i);
+        kminmers.push(kminmer);
     }
-    /*if read {
-        string_hashes.reverse();
-        pos_to_seq_coord.reverse();
-        for i in 0..num_hashes {
-            pos_to_seq_coord[i] = read_length - pos_to_seq_coord[i] - l;
-        }
-        for i in 0..num_hashes {
-            let mut kmer_hash : u64 = 0;
-            let mut kmer_start = 0;
-            let mut kmer_end = 0;
-            if i + k - 1 < num_hashes {
-                for j in i..i+k {
-                    if params.use_strobe {
-                        let s = get_randstrobe(j, wmin, wmax, num_hashes, &string_hashes, &pos_to_seq_coord, q);
-                        if s.is_none() {break;}
-                        let s_unw = s.unwrap();
-                        kmer_hash += s_unw.0;
-                        if j == i + k - 1 {kmer_end = s_unw.2;}
-                    }
-                    else {kmer_hash += string_hashes[j];}
-                }
-                kmer_start = pos_to_seq_coord[i];
-                kmer_end = pos_to_seq_coord[i + k - 1];
-            }
-            if kmer_end != 0 {mers.push((kmer_hash, kmer_start, kmer_end, i, true));}
-        }
-    }*/
-    return (seq.len(), mers);
+    kminmers
 }
 
-pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_lens: &DashMap<String, usize>, /*mers_index: &DashMap<String, DashMap<u64, (Mer, usize)>>*/ mers_index: &DashMap<u64, (Mer, String)>, l: usize, k: usize) -> Vec<Match> {
+pub fn filter_hits(hits: &Vec<Hit>, g: usize) -> (Vec<&Hit>, bool) {
+    let mut fwd = Vec::<&Hit>::new();
+    let mut rc = Vec::<&Hit>::new();
+    if hits.is_empty() {return (fwd, false);}
+    let mut prev_dir_fwd = true;
+    let mut curr_dir_fwd = true;
+    let mut prev = &hits[0];
+    if hits.len() > 1 {
+        prev_dir_fwd = (hits[1].ref_offset >= prev.ref_offset);
+    }
+    for i in 1..hits.len() {
+        curr_dir_fwd = hits[i].ref_offset >= prev.ref_offset;
+        if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == true {
+            if hits[i].ref_offset - prev.ref_offset <= g {
+                fwd.push(&prev);
+            }
+        }
+        else if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == false {
+            if prev.ref_offset - hits[i].ref_offset <= g {
+                rc.push(&prev);
+            }
+        } 
+        prev = &hits[i];
+        prev_dir_fwd = curr_dir_fwd;
+    }
+    if prev_dir_fwd {fwd.push(&hits[hits.len()-1]);}
+    else {rc.push(&hits[hits.len()-1]);}
+    if rc.len() < fwd.len() {return (fwd, false)}
+    else {return (rc, true)}
+}
+
+pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<Kminmer, String>, l: usize, k: usize) -> Vec<Match> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let mut hit_count_all = 0;
     let mut i = 0;
     let mut i_rev = 0;
-    while i < query_mers.len() {
-        if i < query_mers.len() {
-            let q = query_mers[i];
-            let mut h = Hit {query_id: query_id.to_string(), ref_id: String::new(), query_s: q.1, query_e: q.2, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.4, query_span: 0, ref_span: 0, query_offset: 0, ref_offset: 0};
-            let mut max_extend_offset = 0;
-            let mer_entry = mers_index.get(&q.0);
-            if mer_entry.is_some() {
-                let tup = mer_entry.unwrap();
-                let (mer, ref_id) = tup.value();
-                h.query_offset = q.3;
-                h.ref_offset = mer.3;
-                h.ref_id = ref_id.to_string();
-                h.ref_s = mer.1;
-                h.query_e = q.2;
-                h.ref_e = mer.2;
-                h.hit_count += 1;
-                h.is_rc = q.4;
-                h.query_span = h.query_e - h.query_s + 1; 
-                h.ref_span = h.ref_e - h.ref_s + 1; 
-                hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
-                hit_count_all += 1; 
-            }
-            /*for index in mers_index.iter() {
-                let ref_id = index.key().to_string();
-                let ref_mer_count = index.value();
-                let mer_entry = ref_mer_count.get(&q.0);
-                if mer_entry.is_some() {
-                    let tup = mer_entry.unwrap();
-                    let (mer, count) = tup.value();
-                    if *count > 1 {continue;}
-                    // figure out if + or -
-                    h.query_offset = q.3;
-                    h.ref_offset = mer.3;
-                    h.ref_id = ref_id.to_string();
-                    h.ref_s = mer.1;
-                    h.query_e = q.2;
-                    h.ref_e = mer.2;
-                    h.hit_count += 1;
-                    h.is_rc = q.4;
-                    h.query_span = h.query_e - h.query_s + 1; 
-                    h.ref_span = h.ref_e - h.ref_s + 1; 
-                    hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
-                    hit_count_all += 1;
-                }
-
-            }*/
+    for i in 0..query_mers.len() {
+        let q = &query_mers[i];
+        let mut h = Hit {query_id: query_id.to_string(), ref_id: String::new(), query_s: q.start, query_e: q.end, ref_s: 0, ref_e: 0, hit_count: 0, is_rc: q.rev, query_span: q.end - q.start + 1, ref_span: 0, query_offset: q.offset, ref_offset: 0};
+        let mut max_extend_offset = 0;
+        let mer_entry = mers_index.get(&q);
+        if mer_entry.is_some() {
+            let tup = mer_entry.unwrap();
+            let mer = tup.key();
+            let ref_id = tup.value();
+            h.ref_offset = mer.offset;
+            h.ref_id = ref_id.to_string();
+            h.ref_s = mer.start;
+            h.ref_e = mer.end;
+            h.hit_count += 1;
+            h.ref_span = h.ref_e - h.ref_s + 1; 
+            hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
+            hit_count_all += 1; 
         }
-        i += 1;
     }
     let mut final_matches = Vec::<Match>::new();
     let prev_key : u64 = 0;
     
     for (key, val) in hits_per_ref.into_iter() {
+        
+
+
+        let mut g = 1000;
         let mut final_rc_mappings = Vec::<Vec::<Hit>>::new();
         let mut final_fwd_mappings = Vec::<Vec::<Hit>>::new();
         let mut max_fwd_mapping = 0;
@@ -381,12 +168,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
         let mut e = 0;
         let mut span = 0;
         let mut score = 0;
-        /*let rc_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == true && hit.query_id == query_id).collect();
-        let rc_hits_cleared = Vec::<&Hit>::new();
-        let fwd_hits : Vec<&Hit> = hits.iter().filter(|hit| hit.is_rc == false && hit.query_id == query_id).collect();
-        let fwd_hits_cleared = Vec::<&Hit>::new();
-        let rc_mappings = Vec::<Vec::<&Hit>>::new();
-        let fwd_mappings = Vec::<Vec::<&Hit>>::new();*/
         let mut fwd_off = 0;
         let mut rc_off = 0;
         let mut filtered_hits_fwd = Vec::<&Hit>::new();
@@ -395,32 +176,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
         let mut max_fwd_off = 0;
         let mut max_rc_off = 0;
         let mut curr_dir = true;
-        if hits_raw.len() != 0 {
-            let mut prev_dir = true;
-            if hits_raw.len() > 1 {
-                prev_dir = (hits_raw[1].ref_offset >= hits_raw[0].ref_offset);
-            }
-            let mut prev = &hits_raw[0];
-            for i in 1..hits_raw.len() {
-                curr_dir = hits_raw[i].ref_offset >= prev.ref_offset;
-                if curr_dir == prev_dir && curr_dir == true {
-                    if hits_raw[i].ref_offset - prev.ref_offset == 1 {
-                        filtered_hits_fwd.push(&prev);
-                    }
-                }
-                else if curr_dir == prev_dir && curr_dir == false {
-                    if prev.ref_offset - hits_raw[i].ref_offset == 1 {
-                        filtered_hits_rc.push(&prev);
-                    }
-                } 
-                prev = &hits_raw[i];
-                prev_dir = curr_dir;
-            }
-            if curr_dir {filtered_hits_fwd.push(&hits_raw[hits_raw.len()-1]);}
-            else {filtered_hits_rc.push(&hits_raw[hits_raw.len()-1]);}
-            if filtered_hits_rc.len() < filtered_hits_fwd.len() {hits = filtered_hits_fwd.clone();}
-            else {hits = filtered_hits_rc.clone();}
-        }
+        let (hits, hits_rc) = filter_hits(&hits_raw, g);
         let mut prev = &hits[0];
         let mut prev_offset = prev.ref_offset;
         let mut partitions = HashMap::<usize, Vec<&Hit>>::new();
@@ -428,7 +184,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
         partitions.insert(0, vec![&hits[0]]);
         for i in 0..hits.len() {
             let mut curr_offset = hits[i].ref_offset;
-            if ((curr_offset as i32 - prev_offset as i32)).abs() == 1 {
+            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 && ((hits[i].ref_e as i32 - hits[i].ref_s as i32)).abs() <= 10000 {
                 partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
             }
             else {
@@ -438,15 +194,21 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
             prev_offset = curr_offset;
         }
         let mut hits = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1;
+        /*for (k, p) in partitions.iter() {
+            println!("Partition {}:", k);
+            for v in p.iter() {
+                println!("{:?}", v);
+            }
+         }*/
         let mut final_ref_s = hits[0].ref_s;
         let mut final_ref_e = hits[hits.len()-1].ref_e;
         let mut final_query_s = hits[0].query_s;
         let mut final_query_e = hits[hits.len()-1].query_e;
-        if filtered_hits_rc.len() > filtered_hits_fwd.len() {
+        if hits_rc {
             final_ref_s = hits[hits.len()-1].ref_s;
             final_ref_e = hits[0].ref_e;
         }
-        let mut score = (final_ref_e - final_ref_s) / hits.len();
+        let mut score = hits.len();
         if final_ref_s > final_query_s {
             final_ref_s -= final_query_s;
             final_query_s = 0;
@@ -463,138 +225,24 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Mer>, ref_le
             else {final_query_e = query_len;}
         }
         let ref_id = &hits[0].ref_id;
-        if filtered_hits_fwd.len() > filtered_hits_rc.len() && hits.len() > 1 {
+        if !hits_rc {
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, false);
             final_matches.push(v);
         }
-        else if filtered_hits_rc.len() > filtered_hits_fwd.len() && hits.len() > 1 {
+        else if hits_rc {
             let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, true);
             final_matches.push(v);
         }
     }
     return final_matches
 }
-/*
 
-
-            // -----------------------FINDING RC MAPPINGS-----------------------
-        if rc_hits.len() != 0 {
-            let mut prev_rc_hit = rc_hits[0];
-            let mut current_mapping = vec![prev_rc_hit];
-            for i in 1..rc_hits.len() {
-                let curr_rc_hit = rc_hits[i];
-                if curr_rc_hit.ref_s < prev_rc_hit.ref_s || /*curr_rc_hit.hit_count == 1 ||*/ (prev_rc_hit.ref_e  + query_len < curr_rc_hit.ref_s) {
-                    if current_mapping.len() != 0 {
-                        final_rc_mappings.push(current_mapping.into_iter().cloned().collect());
-                    }
-                    current_mapping = Vec::<&Hit>::new();
-                    continue;
-                } 
-                current_mapping.push(curr_rc_hit);
-                prev_rc_hit = curr_rc_hit;               
-            }
-            final_rc_mappings.push(current_mapping.into_iter().cloned().collect());
-        }
-        // -----------------------FINDING FWD MAPPINGS-----------------------
-        if fwd_hits.len() != 0 {
-            let mut prev_fwd_hit = fwd_hits[0];
-            let mut current_mapping = vec![prev_fwd_hit];
-            for i in 1..fwd_hits.len() {
-                let curr_fwd_hit = fwd_hits[i];
-                if curr_fwd_hit.ref_s < prev_fwd_hit.ref_s || /* curr_fwd_hit.hit_count == 1  ||*/ (prev_fwd_hit.ref_e  + query_len < curr_fwd_hit.ref_s) {
-                    if current_mapping.len() != 0 {
-                        final_fwd_mappings.push(current_mapping.into_iter().cloned().collect());
-                    }
-                    current_mapping = Vec::<&Hit>::new();
-                    continue;
-                }
-                current_mapping.push(curr_fwd_hit);
-                prev_fwd_hit = curr_fwd_hit;
-            }
-            final_fwd_mappings.push(current_mapping.into_iter().cloned().collect());
-        }
-        for i in 0..final_fwd_mappings.len() {
-            let mapping = &final_fwd_mappings[i];
-            if mapping.is_empty() {continue;}
-            let mapping_s = mapping.iter().min_by(|a, b| a.query_s.cmp(&b.query_s)).unwrap().query_s;
-            let mapping_e = mapping.iter().max_by(|a, b| a.query_e.cmp(&b.query_e)).unwrap().query_e;
-            let mapping_span = mapping_e - mapping_s;
-            let mapping_score = mapping.len() * mapping_span;
-            //for hit in mapping.iter() {mapping_score += (hit.query_e - hit.query_s);}
-            if mapping_score > max_fwd_mapping_score {max_fwd_mapping_score = mapping_score; max_fwd_mapping = i;}
-            /*println!("MAPPING {} SCORE {}", i+1, mapping_score);
-            for hit in mapping.iter() {
-                println!("{:?}", hit);
-            }*/
-        }
-        for i in 0..final_rc_mappings.len() {
-            let mapping = &final_rc_mappings[i];
-            if mapping.is_empty() {continue;}
-            let mapping_s = mapping.iter().min_by(|a, b| a.query_s.cmp(&b.query_s)).unwrap().query_s;
-            let mapping_e = mapping.iter().max_by(|a, b| a.query_e.cmp(&b.query_e)).unwrap().query_e;
-            let mapping_span = mapping_e - mapping_s;
-            let mapping_score = mapping.len() * mapping_span;
-            /*for hit in mapping.iter() {
-                mapping_score += (hit.query_e - hit.query_s);
-            }*/
-            if mapping_score > max_rc_mapping_score {max_rc_mapping_score = mapping_score; max_rc_mapping = i;}
-            /*println!("MAPPING {} SCORE {}", i+1, mapping_score);
-            for hit in mapping.iter() {
-                println!("{:?}", hit);
-            }*/
-        }  
-        let mut final_ref_s = 0;
-        let mut final_ref_e = 0;
-        let mut final_query_s = 0;
-        let mut final_query_e = 0;
-        if max_fwd_mapping_score > max_rc_mapping_score {
-            let max_mapping = final_fwd_mappings[max_fwd_mapping].to_vec();
-            if max_mapping[0].ref_s < max_mapping[0].query_s {
-                final_ref_s = 0;
-                final_ref_e = query_len - 1;
-                final_query_s = max_mapping[0].query_s - max_mapping[0].ref_s;
-                final_query_e = max_mapping[0].query_s - max_mapping[0].ref_s + query_len - 1;
-
-            }
-            else {
-                final_query_s = 0;
-                final_query_e = query_len - 1;
-                final_ref_s = max_mapping[0].ref_s - max_mapping[0].query_s;
-                final_ref_e = max_mapping[0].ref_s - max_mapping[0].query_s + query_len - 1; 
-            }
-            let ref_id = &max_mapping[0].ref_id;
-            let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, max_fwd_mapping_score, false);
-            final_matches.push(v);
-        }
-        else if max_fwd_mapping_score < max_rc_mapping_score {
-            let max_mapping = final_rc_mappings[max_rc_mapping].to_vec();
-            if max_mapping[0].ref_s < max_mapping[0].query_s {
-                final_ref_s = 0;
-                final_ref_e = query_len - 1;
-                final_query_s = max_mapping[0].query_s - max_mapping[0].ref_s;
-                final_query_e = max_mapping[0].query_s - max_mapping[0].ref_s + query_len - 1;
-
-            }
-            else {
-                final_query_s = 0;
-                final_query_e = query_len - 1;
-                final_ref_s = max_mapping[0].ref_s - max_mapping[0].query_s;
-                final_ref_e = max_mapping[0].ref_s - max_mapping[0].query_s + query_len - 1; 
-            }
-            let ref_id = &max_mapping[0].ref_id;
-            let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, max_rc_mapping_score, true);
-            //println!("{:?}", v);
-            final_matches.push(v);
-        }
-    }
-    return final_matches
-}*/
-
-pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File) {
+pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File, params: &Params) {
     for (matches, id) in all_matches.iter() {
         let v = matches.iter().max_by(|a, b| a.8.cmp(&b.8)).unwrap();
         let query_id = v.0.to_string();
         let ref_id = v.1.to_string();
+
         let query_len = v.2;
         let ref_len = v.3;
         let query_s = v.4;
@@ -603,6 +251,7 @@ pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File) 
         let ref_e = v.7;
         let score = v.8;
         let rc : String = match v.9 {true => "-".to_string(), false => "+".to_string()};
+        if query_id == ref_id && query_s == ref_s && query_e == ref_e {continue;}
         let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, query_s, query_e, rc, ref_id, ref_len, ref_s, ref_e, score, ref_len, "255");
         write!(paf_file, "{}", paf_line).expect("Error writing line.");
     }

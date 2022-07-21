@@ -30,28 +30,17 @@ use std::cell::UnsafeCell;
 use std::io::Result;
 use core::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use crate::kminmer::Kminmer;
 mod utils;
 mod paf_output;
-mod seq_output;
-mod kmer_vec;
 mod closures;
 mod mers;
-pub type MersVectorRead = Vec<(u64, u64, usize, usize, bool)>;
-pub type MersVectorReadMod = Vec<(Vec<u64>, u64, usize, usize, bool)>;
-pub type MersVector = Vec<(u64, u64, usize, usize)>;
-pub type MersVectorReduced = Vec<(u64, usize, usize)>;
-pub type KmerLookup = DashMap<u64, (usize, usize)>;
-pub type KmerLookupMod = DashMap<u64, (u64, usize)>;
-pub type KmerLookupModMod = DashMap<Vec<u64>, (u64, usize)>;
-pub type PosIndex = DashMap<u64, MersVectorRead>;
-pub type PosIndexMod = DashMap<u64, MersVectorReadMod>;
+mod kminmer;
 const revcomp_aware : bool = true; // shouldn't be set to false except for strand-directed data or for debugging
-type Kmer = kmer_vec::KmerVec;
-type Overlap = kmer_vec::KmerVec;
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
 pub struct HashEntry {origin: String, seq: String, seqlen: u32, shift: (usize, usize), seq_rev: bool}
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
-pub struct QueryMatch {kminmer: Kmer, target: Vec<HashEntry>, query: HashEntry}
+pub struct QueryMatch {kminmer: Kminmer, target: Vec<HashEntry>, query: HashEntry}
 pub struct SeqFileType(WriteCompressor<File>);
 unsafe impl Sync for SeqFileType {} // same trick as below. we won't share files among threads but Rust can't know that.
 impl SeqFileType {
@@ -97,7 +86,7 @@ pub struct Params {
     f: f64,
     wmin: usize,
     wmax: usize,
-    use_strobe: bool,
+    ava: bool,
 }
 
 pub fn hash_id<T: Hash>(t: &T) -> u64 {
@@ -320,6 +309,10 @@ struct Opt {
     /// time, but can be run on a single core as well.
     #[structopt(long)]
     threads: Option<usize>,
+    /// All vs all alignment preset
+    #[structopt(long)]
+    ava: bool,
+
 
 }
 
@@ -346,6 +339,7 @@ fn main() {
     let mut use_strobe : bool = false;
     let mut use_hpc : bool = false;
     let mut threads : usize = 8;
+    let mut ava = false;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
     if filename.as_os_str().is_empty() {panic!("Please specify an input file.");}
@@ -378,6 +372,7 @@ fn main() {
     if opt.bf {use_bf = true;}
     if opt.strobe {use_strobe = true;}
     if opt.hpc {use_hpc = true;}
+    if opt.ava {ava = true;}
 
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if opt.uhs.is_some() { 
@@ -416,7 +411,7 @@ fn main() {
         f,
         wmin,
         wmax,
-        use_strobe,
+        ava,
     };
     // init some useful objects
     let nb_minimizers_per_read : f64 = 0.0;
@@ -438,7 +433,7 @@ fn main() {
     closures::run_mers(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
-    println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0 / 1024.0);
+    println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);
 }
 
 

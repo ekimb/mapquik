@@ -4,7 +4,6 @@ use std::error::Error;
 use std::io::Write;
 
 use std::io::{BufWriter, BufRead, BufReader};
-use super::Kmer;
 use std::collections::HashMap;
 
 use std::io::{self};

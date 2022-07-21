@@ -1,18 +1,5 @@
-
-
-
-
-
-
-
-
-
-
-
 use bio::alignment::pairwise::banded::*;
-
 use bio::alignment::AlignmentOperation::*;
-
 use crate::HashEntry;
 //     struct QueryMatch {kminmer: Kmer, target: Vec<HashEntry>, query: HashEntry, unique: bool};
 // struct HashEntry {origin: String, seqlen: u32, shift: (u16, u16), seq_rev: bool} 
