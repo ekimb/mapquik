@@ -7,7 +7,8 @@
 *.lcp
 *.lcp.gz
 small-example/*
-*.fasta
+*.genome.fa
+*.10X.fa
 src/trash.rs
 ref/
 *.graphml

@@ -87,6 +87,7 @@ pub struct Params {
     wmin: usize,
     wmax: usize,
     ava: bool,
+    g: usize
 }
 
 pub fn hash_id<T: Hash>(t: &T) -> u64 {
@@ -312,6 +313,9 @@ struct Opt {
     /// All vs all alignment preset
     #[structopt(long)]
     ava: bool,
+    /// Kminmer gap length.
+    #[structopt(short, long)]
+    gap: Option<usize>,
 
 
 }
@@ -340,6 +344,7 @@ fn main() {
     let mut use_hpc : bool = false;
     let mut threads : usize = 8;
     let mut ava = false;
+    let mut gap = 1000;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
     if filename.as_os_str().is_empty() {panic!("Please specify an input file.");}
@@ -368,6 +373,7 @@ fn main() {
         if opt.l.is_some() {l = opt.l.unwrap()} else {println!("Warning: Using default l value ({}).", l);}
         if opt.density.is_some() {density = opt.density.unwrap()} else if opt.s.is_none() {println!("Warning: Using default density value ({}%).", density * 100.0);}
     }
+    if opt.gap.is_some() {gap = opt.gap.unwrap()} else {println!("Warning: Using default gap length ({}).", gap);} 
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
     if opt.bf {use_bf = true;}
     if opt.strobe {use_strobe = true;}
@@ -412,6 +418,7 @@ fn main() {
         wmin,
         wmax,
         ava,
+        g: gap,
     };
     // init some useful objects
     let nb_minimizers_per_read : f64 = 0.0;

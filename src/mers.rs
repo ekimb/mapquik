@@ -77,9 +77,11 @@ pub fn extract(inp_seq_raw: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
 pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer> {
     let k = params.k;
     let mut kminmers = Vec::<Kminmer>::new();
-    for i in 0..(sk.len() - k + 1) {
-        let kminmer = Kminmer::new(&sk[i..i+k], pos[i], pos[i + k - 1], i);
-        kminmers.push(kminmer);
+    if sk.len() >= k {
+        for i in 0..(sk.len() - k + 1) {
+            let kminmer = Kminmer::new(&sk[i..i+k], pos[i], pos[i + k - 1], i);
+            kminmers.push(kminmer);
+        }
     }
     kminmers
 }
@@ -115,7 +117,10 @@ pub fn filter_hits(hits: &Vec<Hit>, g: usize) -> (Vec<&Hit>, bool) {
     else {return (rc, true)}
 }
 
-pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<Kminmer, String>, l: usize, k: usize) -> Vec<Match> {
+pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<Kminmer, String>, params: &Params) -> Vec<Match> {
+    let l = params.l;
+    let k = params.k;
+    let g = params.g;
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let mut hit_count_all = 0;
     let mut i = 0;

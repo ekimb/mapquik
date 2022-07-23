@@ -155,7 +155,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<Match>, String)> {
         let mut output = Vec::<Match>::new();
         let (seq_len, kminmers) = index_mers(seq_id, seq_str, params, true);
-        output = mers::find_hits(&seq_id, seq_len, &kminmers, &lens, &mers_index, params.l, params.k);
+        output = mers::find_hits(&seq_id, seq_len, &kminmers, &lens, &mers_index, params);
         if output.len() > 0 {
             return Some((output, seq_id.to_string()))
         }
