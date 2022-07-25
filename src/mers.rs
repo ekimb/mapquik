@@ -186,6 +186,10 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
             h.ref_id = ref_id.to_string();
             h.ref_s = mer.start;
             h.ref_e = mer.end;
+            if h.is_rc {
+                h.ref_e = mer.end;
+                h.ref_s = mer.start;
+            }
             h.hit_count += 1;
             h.ref_span = h.ref_e - h.ref_s + 1; 
             hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
