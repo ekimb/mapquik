@@ -111,8 +111,6 @@ pub fn filter_hits(hits: &Vec<Hit>, g: usize) -> (Vec<&Hit>, bool) {
         prev = &hits[i];
         prev_dir_fwd = curr_dir_fwd;
     }
-    if prev_dir_fwd {fwd.push(&hits[hits.len()-1]);}
-    else {rc.push(&hits[hits.len()-1]);}
     if rc.len() < fwd.len() {return (fwd, false)}
     else {return (rc, true)}
 }
@@ -151,7 +149,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
         
 
 
-        let mut g = 1000;
         let mut final_rc_mappings = Vec::<Vec::<Hit>>::new();
         let mut final_fwd_mappings = Vec::<Vec::<Hit>>::new();
         let mut max_fwd_mapping = 0;
@@ -187,9 +184,9 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
         let mut partitions = HashMap::<usize, Vec<&Hit>>::new();
         let mut prev_i = 0;
         partitions.insert(0, vec![&hits[0]]);
-        for i in 0..hits.len() {
+        for i in 1..hits.len() {
             let mut curr_offset = hits[i].ref_offset;
-            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 && ((hits[i].ref_e as i32 - hits[i].ref_s as i32)).abs() <= 10000 {
+            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 {
                 partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
             }
             else {
