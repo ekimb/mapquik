@@ -143,11 +143,11 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
         final_ref_e = hits[0].ref_e;
     }
     let mut score = hits.len();
-    /*if final_ref_s > final_query_s {
+    if final_ref_s > final_query_s {
         final_ref_s -= final_query_s;
         final_query_s = 0;
     }
-    if final_ref_e - final_query_s > query_len {
+    /*if final_ref_e - final_query_s > query_len {
         let excess_add = query_len / 2;
         if final_ref_s > excess_add {final_ref_s -= excess_add;}
         else {final_ref_s = 0;}
@@ -186,10 +186,6 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
             h.ref_id = ref_id.to_string();
             h.ref_s = mer.start;
             h.ref_e = mer.end;
-            if h.is_rc {
-                h.ref_e = mer.end;
-                h.ref_s = mer.start;
-            }
             h.hit_count += 1;
             h.ref_span = h.ref_e - h.ref_s + 1; 
             hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
