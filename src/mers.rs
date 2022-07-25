@@ -86,7 +86,7 @@ pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer
     kminmers
 }
 
-pub fn filter_hits(hits: &Vec<Hit>, g: usize) -> (Vec<&Hit>, bool) {
+pub fn filter_hits(hits: &Vec<Hit>) -> (Vec<&Hit>, bool) {
     let mut fwd = Vec::<&Hit>::new();
     let mut rc = Vec::<&Hit>::new();
     if hits.is_empty() {return (fwd, false);}
@@ -95,24 +95,74 @@ pub fn filter_hits(hits: &Vec<Hit>, g: usize) -> (Vec<&Hit>, bool) {
     let mut prev = &hits[0];
     if hits.len() > 1 {
         prev_dir_fwd = (hits[1].ref_offset >= prev.ref_offset);
-    }
-    for i in 1..hits.len() {
-        curr_dir_fwd = hits[i].ref_offset >= prev.ref_offset;
-        if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == true {
-            if hits[i].ref_offset - prev.ref_offset <= g {
+        for i in 1..hits.len() {
+            curr_dir_fwd = hits[i].ref_offset >= prev.ref_offset;
+            if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == true {
                 fwd.push(&prev);
             }
-        }
-        else if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == false {
-            if prev.ref_offset - hits[i].ref_offset <= g {
+            else if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == false {
                 rc.push(&prev);
-            }
-        } 
-        prev = &hits[i];
-        prev_dir_fwd = curr_dir_fwd;
+            } 
+            prev = &hits[i];
+            prev_dir_fwd = curr_dir_fwd;
+        }
     }
+    else {fwd.push(&prev);}
     if rc.len() < fwd.len() {return (fwd, false)}
     else {return (rc, true)}
+}
+
+pub fn partition(hits: &mut Vec<&Hit>, g: usize) {
+    if hits.len() > 1 {
+        let mut prev_offset = hits[0].ref_offset;
+        let mut partitions = HashMap::<usize, Vec<&Hit>>::new();
+        let mut prev_i = 0;
+        partitions.insert(0, vec![&hits[0]]);
+        for i in 1..hits.len() {
+            let mut curr_offset = hits[i].ref_offset;
+            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 {
+                partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
+            }
+            else {
+                partitions.insert(i, vec![&hits[i]]);
+                prev_i = i;
+            }
+            prev_offset = curr_offset;
+        }
+        let mut hits_f = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1.clone();
+        *hits = hits_f;
+    }
+}
+pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, query_id: &str, query_len: usize) -> Match {
+    let mut final_ref_s = hits[0].ref_s;
+    let mut final_ref_e = hits[hits.len()-1].ref_e;
+    let mut final_query_s = hits[0].query_s;
+    let mut final_query_e = hits[hits.len()-1].query_e;
+    if rc {
+        final_ref_s = hits[hits.len()-1].ref_s;
+        final_ref_e = hits[0].ref_e;
+    }
+    let mut score = hits.len();
+    if final_ref_s > final_query_s {
+        final_ref_s -= final_query_s;
+        final_query_s = 0;
+    }
+    if final_ref_e - final_query_s > query_len {
+        let excess_add = query_len / 2;
+        if final_ref_s > excess_add {final_ref_s -= excess_add;}
+        else {final_ref_s = 0;}
+        if ref_len - final_ref_e > excess_add {final_ref_e += excess_add;}
+        else {final_ref_e = ref_len;}
+        if final_query_s > excess_add {final_query_s -= excess_add;}
+        else {final_query_s = 0;}
+        if query_len - final_query_e > excess_add {final_query_e += excess_add;}
+        else {final_query_e = query_len;}
+    }
+    let ref_id = &hits[0].ref_id;
+    if !rc {
+        return (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, false);
+    }
+    return (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, true);
 }
 
 pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<Kminmer, String>, params: &Params) -> Vec<Match> {
@@ -142,97 +192,15 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
             hit_count_all += 1; 
         }
     }
-    let mut final_matches = Vec::<Match>::new();
-    let prev_key : u64 = 0;
-    
+    let mut final_matches = Vec::<Match>::new();    
     for (key, val) in hits_per_ref.into_iter() {
-        
-
-
-        let mut final_rc_mappings = Vec::<Vec::<Hit>>::new();
-        let mut final_fwd_mappings = Vec::<Vec::<Hit>>::new();
-        let mut max_fwd_mapping = 0;
-        let mut max_fwd_mapping_score = 0;
-        let mut max_rc_mapping = 0;
-        let mut max_rc_mapping_score = 0;
         let ref_id = key;
         let mut hits_raw = val.to_vec();
         let ref_len = *ref_lens.get(&ref_id).unwrap().value();
-            //println!("_____________________{} to {}_____________\nRC", query_id, ref_id);
-        let prev_q_start = 0;
-        let rc_mono = true;
-        let fwd_hit_avg = 0.0;
-        let rc_hit_avg = 0.0;
-        let fwd_mono = true;
-        let mut write_fwd = true;
-        let mut write_rc = true;
-        let mut s = 0;
-        let mut e = 0;
-        let mut span = 0;
-        let mut score = 0;
-        let mut fwd_off = 0;
-        let mut rc_off = 0;
-        let mut filtered_hits_fwd = Vec::<&Hit>::new();
-        let mut filtered_hits_rc = Vec::<&Hit>::new();
-        let mut hits = Vec::<&Hit>::new();
-        let mut max_fwd_off = 0;
-        let mut max_rc_off = 0;
-        let mut curr_dir = true;
-        let (hits, hits_rc) = filter_hits(&hits_raw, g);
-        let mut prev = &hits[0];
-        let mut prev_offset = prev.ref_offset;
-        let mut partitions = HashMap::<usize, Vec<&Hit>>::new();
-        let mut prev_i = 0;
-        partitions.insert(0, vec![&hits[0]]);
-        for i in 1..hits.len() {
-            let mut curr_offset = hits[i].ref_offset;
-            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 {
-                partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
-            }
-            else {
-                partitions.insert(i, vec![&hits[i]]);
-                prev_i = i;
-            }
-            prev_offset = curr_offset;
-        }
-        let mut hits = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1;
-        /*for (k, p) in partitions.iter() {
-            println!("Partition {}:", k);
-            for v in p.iter() {
-                println!("{:?}", v);
-            }
-         }*/
-        let mut final_ref_s = hits[0].ref_s;
-        let mut final_ref_e = hits[hits.len()-1].ref_e;
-        let mut final_query_s = hits[0].query_s;
-        let mut final_query_e = hits[hits.len()-1].query_e;
-        if hits_rc {
-            final_ref_s = hits[hits.len()-1].ref_s;
-            final_ref_e = hits[0].ref_e;
-        }
-        let mut score = hits.len();
-        if final_ref_s > final_query_s {
-            final_ref_s -= final_query_s;
-            final_query_s = 0;
-        }
-        if final_ref_e - final_query_s > query_len {
-            let excess_add = query_len / 2;
-            if final_ref_s > excess_add {final_ref_s -= excess_add;}
-            else {final_ref_s = 0;}
-            if ref_len - final_ref_e > excess_add {final_ref_e += excess_add;}
-            else {final_ref_e = ref_len;}
-            if final_query_s > excess_add {final_query_s -= excess_add;}
-            else {final_query_s = 0;}
-            if query_len - final_query_e > excess_add {final_query_e += excess_add;}
-            else {final_query_e = query_len;}
-        }
-        let ref_id = &hits[0].ref_id;
-        if !hits_rc {
-            let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, false);
-            final_matches.push(v);
-        }
-        else if hits_rc {
-            let v = (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, true);
+        if !hits_raw.is_empty() {
+            let (mut hits, rc) = filter_hits(&hits_raw);
+            partition(&mut hits, g);
+            let v = find_coords(&hits, rc, &ref_id, ref_len, query_id, query_len);
             final_matches.push(v);
         }
     }
