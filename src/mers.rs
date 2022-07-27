@@ -109,7 +109,7 @@ pub fn partition(hits: &mut Vec<&Hit>, g: usize) {
         partitions.insert(0, vec![&hits[0]]);
         for i in 1..hits.len() {
             let mut curr_offset = hits[i].ref_offset;
-            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 {
+            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 && hits[i].hit_count > 1 {
                 partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
             }
             else {
@@ -132,13 +132,25 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
         final_query_s = hits[hits.len()-1].query_s;
         final_query_e = hits[0].query_e;
     }
-    if query_len > final_ref_e - final_ref_s {
-        final_ref_e += query_len - final_query_e;
-        final_query_e = query_len - 1;
+    if !rc {
+        if query_len > final_ref_e - final_ref_s {
+            final_ref_e += query_len - final_query_e;
+            final_query_e = query_len - 1;
+        }
+        if final_ref_s > final_query_s {
+            final_ref_s -= final_query_s;
+            final_query_s = 0;
+        }
     }
-    if final_ref_s > final_query_s {
-        final_ref_s -= final_query_s;
-        final_query_s = 0;
+    else {
+        if query_len - final_query_e < ref_len - final_ref_e {
+            final_ref_s -= query_len - final_query_e;
+            final_query_e = query_len - 1;
+        }
+        if ref_len - final_ref_e > final_query_s {
+            final_ref_e += final_query_s;
+            final_query_s = 0;
+        }
     }
     
     /*if final_ref_e - final_query_s > query_len {
@@ -162,15 +174,23 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
         let tup = mer_entry.unwrap();
         let mer = tup.key();
         let ref_id = tup.value();
-        if ref_id == &h.ref_id && (mer.offset as i32 - index as i32).abs() == 1 && ((q.rev != mer.rev) == h.is_rc) {
+        if ref_id == &h.ref_id && (mer.offset as i32 - prev_offset as i32).abs() == 1 
+        && ((q.rev != mer.rev) == h.is_rc) {
+            //println!("Q\t{}\t{}\tR\t{}\t{}\t{}", q.start, q.end, mer.start, mer.end, (q.rev != mer.rev));
+            if h.is_rc {
+                h.ref_s = mer.start;
+            }
+            else {
+                h.ref_e = mer.end;
+            }
             h.query_e = q.end;
             h.query_span = q.end - h.query_s + 1;
-            h.ref_e = mer.end;
             h.ref_span = mer.end - h.ref_s + 1;
             h.hit_count += 1;
             extend_hit(index + 1, h, query_mers, mers_index, mer.offset);
         }
     }
+
     return h.hit_count;
 }
 
