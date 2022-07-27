@@ -124,10 +124,10 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
     let mut final_query_s = hits[0].query_s;
     let mut final_query_e = hits[hits.len()-1].query_e;
     let mut score = hits.len();
-    /*if final_ref_s > final_query_s {
+    if final_ref_s > final_query_s {
         final_ref_s -= final_query_s;
         final_query_s = 0;
-    }*/
+    }
     /*if final_ref_e - final_query_s > query_len {
         let excess_add = query_len / 2;
         if final_ref_s > excess_add {final_ref_s -= excess_add;}
