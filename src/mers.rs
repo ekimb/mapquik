@@ -89,12 +89,16 @@ pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer
 pub fn filter_hits(hits: &Vec<Hit>) -> (Vec<&Hit>, bool) {
     let mut fwd = hits.iter().filter(|h| !h.is_rc).collect::<Vec<&Hit>>();
     let mut rc = hits.iter().filter(|h| h.is_rc).collect::<Vec<&Hit>>();
-    let fin = match fwd.len() >= rc.len() {
+    let fin = match num_hits(&fwd) >= num_hits(&rc) {
         true => (fwd, false),
         false => (rc, true),
     };
     fin
 
+}
+
+pub fn num_hits(h: &Vec<&Hit>) -> usize {
+    return h.iter().map(|h| h.hit_count).sum::<usize>();
 }
 
 pub fn partition(hits: &mut Vec<&Hit>, g: usize) {
@@ -114,7 +118,7 @@ pub fn partition(hits: &mut Vec<&Hit>, g: usize) {
             }
             prev_offset = curr_offset;
         }
-        let mut hits_f = partitions.iter().max_by(|a, b| a.1.len().cmp(&b.1.len())).unwrap().1.clone();
+        let mut hits_f = partitions.iter().max_by(|a, b| num_hits(a.1).cmp(&num_hits(b.1))).unwrap().1.clone();
         *hits = hits_f;
     }
 }
@@ -123,11 +127,15 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
     let mut final_ref_e = hits[hits.len()-1].ref_e;
     let mut final_query_s = hits[0].query_s;
     let mut final_query_e = hits[hits.len()-1].query_e;
-    let mut score = hits.len();
-    if final_ref_s > final_query_s {
+    let mut score = num_hits(hits);
+    if rc {
+        final_query_s = hits[hits.len()-1].query_s;
+        final_query_e = hits[0].query_e;
+    }
+    /*if final_ref_s > final_query_s {
         final_ref_s -= final_query_s;
         final_query_s = 0;
-    }
+    }*/
     /*if final_ref_e - final_query_s > query_len {
         let excess_add = query_len / 2;
         if final_ref_s > excess_add {final_ref_s -= excess_add;}
