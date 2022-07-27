@@ -87,29 +87,14 @@ pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer
 }
 
 pub fn filter_hits(hits: &Vec<Hit>) -> (Vec<&Hit>, bool) {
-    let mut fwd = Vec::<&Hit>::new();
-    let mut rc = Vec::<&Hit>::new();
-    if hits.is_empty() {return (fwd, false);}
-    let mut prev_dir_fwd = true;
-    let mut curr_dir_fwd = true;
-    let mut prev = &hits[0];
-    if hits.len() > 1 {
-        prev_dir_fwd = (hits[1].ref_offset >= prev.ref_offset);
-        for i in 1..hits.len() {
-            curr_dir_fwd = hits[i].ref_offset >= prev.ref_offset;
-            if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == true {
-                fwd.push(&prev);
-            }
-            else if curr_dir_fwd == prev_dir_fwd && curr_dir_fwd == false {
-                rc.push(&prev);
-            } 
-            prev = &hits[i];
-            prev_dir_fwd = curr_dir_fwd;
-        }
-    }
-    else {fwd.push(&prev);}
-    if rc.len() < fwd.len() {return (fwd, false)}
-    else {return (rc, true)}
+    let mut fwd = hits.iter().filter(|h| !h.is_rc).collect::<Vec<&Hit>>();
+    let mut rc = hits.iter().filter(|h| h.is_rc).collect::<Vec<&Hit>>();
+    let fin = match fwd.len() >= rc.len() {
+        true => (fwd, false),
+        false => (rc, true),
+    };
+    fin
+
 }
 
 pub fn partition(hits: &mut Vec<&Hit>, g: usize) {
@@ -138,10 +123,6 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
     let mut final_ref_e = hits[hits.len()-1].ref_e;
     let mut final_query_s = hits[0].query_s;
     let mut final_query_e = hits[hits.len()-1].query_e;
-    if rc {
-        final_ref_s = hits[hits.len()-1].ref_s;
-        final_ref_e = hits[0].ref_e;
-    }
     let mut score = hits.len();
     /*if final_ref_s > final_query_s {
         final_ref_s -= final_query_s;
@@ -158,11 +139,7 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
         if query_len - final_query_e > excess_add {final_query_e += excess_add;}
         else {final_query_e = query_len;}
     }*/
-    let ref_id = &hits[0].ref_id;
-    if !rc {
-        return (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, false);
-    }
-    return (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, true);
+    (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, rc)
 }
 
 pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<Kminmer, String>, params: &Params) -> Vec<Match> {
@@ -186,7 +163,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
             h.ref_id = ref_id.to_string();
             h.ref_s = mer.start;
             h.ref_e = mer.end;
-            h.is_rc = (q.rev == mer.rev);
+            h.is_rc = (q.rev != mer.rev);
             h.hit_count += 1;
             h.ref_span = h.ref_e - h.ref_s + 1; 
             hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
@@ -200,6 +177,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
         let ref_len = *ref_lens.get(&ref_id).unwrap().value();
         if !hits_raw.is_empty() {
             let (mut hits, rc) = filter_hits(&hits_raw);
+            if rc { hits.reverse() }
             partition(&mut hits, g);
             let v = find_coords(&hits, rc, &ref_id, ref_len, query_id, query_len);
             final_matches.push(v);
@@ -213,7 +191,6 @@ pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File, 
         let v = matches.iter().max_by(|a, b| a.8.cmp(&b.8)).unwrap();
         let query_id = v.0.to_string();
         let ref_id = v.1.to_string();
-
         let query_len = v.2;
         let ref_len = v.3;
         let query_s = v.4;
