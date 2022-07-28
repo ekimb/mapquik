@@ -129,7 +129,7 @@ pub fn partition(hits: &mut Vec<&Hit>, g: usize) {
         partitions.insert(0, vec![&hits[0]]);
         for i in 1..hits.len() {
             let mut curr_offset = hits[i].ref_offset;
-            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 && hits[i].hit_count > 1 {
+            if ((curr_offset as i32 - prev_offset as i32)).abs() <= g as i32 {
                 partitions.entry(prev_i).or_insert(vec![]).push(&hits[i]);
             }
             else {
