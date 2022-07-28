@@ -100,17 +100,25 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
     println!("Removed likely-erroneous l-mers based on histogram (count < {}).", threshold_min);
     */
     let index_mers = |seq_id: &str, seq: &[u8], params: &Params, read: bool| -> (usize, Vec<Kminmer>) {
-        let (mut sk, mut pos) = mers::extract(seq, params);
-        let mut kminmers = mers::kminmers(&sk, &pos, params);
         if !read {
+            let (mut sk, mut pos) = mers::extract(seq, params, false);
+            let mut kminmers = mers::kminmers(seq, &sk, &pos, params, false);
             for kminmer in kminmers.iter() {
                 if mers_index.get_mut(&kminmer).is_some() {
                     mers_index.remove(&kminmer);
                 }
                 else {mers_index.insert(kminmer.clone(),  seq_id.to_string());}
             }
+            lens.insert(seq_id.to_string(), seq.len());
+            return (seq.len(), kminmers);
         }
-        lens.insert(seq_id.to_string(), seq.len());
+        else {
+            let (mut sk, mut pos) = mers::extract(seq, params, false);
+            let mut kminmers = mers::kminmers(seq, &sk, &pos, params, true);
+            lens.insert(seq_id.to_string(), seq.len());
+            return (seq.len(), kminmers);
+        }
+
         /*else {
             mers_index.insert(seq_id.to_string(), DashMap::new());
             mers.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
@@ -130,7 +138,6 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
             }  
             lens.insert(seq_id.to_string(), seq_len);
         }*/
-        return (seq.len(), kminmers);
     };
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         let (seq_len, unique_mers) = index_mers(ref_id, ref_str, params, false);
