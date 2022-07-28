@@ -83,7 +83,7 @@ pub struct Params {
     use_bf: bool,
     use_hpc: bool,
     debug: bool,
-    f: f64,
+    f: usize,
     wmin: usize,
     wmax: usize,
     ava: bool,
@@ -273,7 +273,7 @@ struct Opt {
     ///
     /// Removes this fraction of repetitive syncmers.
     #[structopt(short, long)]
-    f: Option<f64>,
+    f: Option<usize>,
     /// Syncmer-based window minimum value.
     #[structopt(short, long)]
     wmin: Option<usize>,
@@ -334,7 +334,7 @@ fn main() {
     let mut l : usize = 12;
     let mut wmax : usize = 0;
     let mut wmin : usize = 0;
-    let mut f : f64 = 1.0;
+    let mut f : usize = 10;
     let mut s : usize = 0;
     let mut density : f64 = 0.10;
     let reference : bool = false;
@@ -375,6 +375,7 @@ fn main() {
     }
     if opt.gap.is_some() {gap = opt.gap.unwrap()} else {println!("Warning: Using default gap length ({}).", gap);} 
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
+    if opt.f.is_some() {f = opt.f.unwrap()} else {println!("Warning: Using default max count ({}).", f);}
     if opt.bf {use_bf = true;}
     if opt.strobe {use_strobe = true;}
     if opt.hpc {use_hpc = true;}
@@ -389,7 +390,6 @@ fn main() {
         lcp = true;
         lcp_filename = opt.lcp.unwrap(); 
     } 
-    if opt.f.is_some() {f = opt.f.unwrap()} else {println!("Warning: Using default filter cutoff value ({}).", f);} 
     if opt.s.is_some() { 
         s = opt.s.unwrap(); 
         println!("Syncmer parameter s: {}", s);

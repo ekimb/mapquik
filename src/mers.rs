@@ -166,7 +166,7 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
     }*/
     (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, rc)
 }
-pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_index: &DashMap<Vec<u64>, Vec<(String, Kminmer)>>, prev_offset: usize) -> usize {
+pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_index: &DashMap<Vec<u64>, Vec<(String, Kminmer)>>, prev_offset: usize, params: &Params) -> usize {
     if index == query_mers.len() - 1 {return h.hit_count;}
     let q = &query_mers[index + 1];
     let mer_entry = mers_index.get(&q.mers());
@@ -175,6 +175,7 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
         let mer_hash = tup.key();
         let mer_id_vec = tup.value();
         for (ref_id, mer) in mer_id_vec.iter() {
+            if mer_id_vec.len() > params.f {return h.hit_count;}
             if ref_id == &h.ref_id && (mer.offset as i32 - prev_offset as i32).abs() == 1 && ((q.rev != mer.rev) == h.is_rc) {
                 //println!("Q\t{}\t{}\tR\t{}\t{}\t{}", q.start, q.end, mer.start, mer.end, (q.rev != mer.rev));
                 if h.is_rc {
@@ -187,7 +188,7 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
                 h.query_span = q.end - h.query_s + 1;
                 h.ref_span = mer.end - h.ref_s + 1;
                 h.hit_count += 1;
-                extend_hit(index + 1, h, query_mers, mers_index, mer.offset);
+                extend_hit(index + 1, h, query_mers, mers_index, mer.offset, params);
             }
         }
     }
@@ -210,11 +211,12 @@ pub fn chain_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, m
             let tup = mer_entry.unwrap();
             let mer_hash = tup.key();
             let mer_id_vec = tup.value();
+            if mer_id_vec.len() > params.f {i += 1; continue;}
             //if mer_id_vec.len() > 1 {println!("Mer {:?}\t vec {:?}", mer_hash, mer_id_vec);}
             for (ref_id, mer) in mer_id_vec.iter() {
                 let mut h = Hit {query_id: query_id.to_string(), ref_id: ref_id.to_string(), query_s: q.start, query_e: q.end, ref_s: mer.start, ref_e: mer.end, hit_count: 1, is_rc: (q.rev != mer.rev), query_span: q.end - q.start + 1, ref_span: mer.start - mer.end + 1, query_offset: q.offset, ref_offset: mer.offset};
                 let mut prev_offset = mer.offset;
-                count = extend_hit(i, &mut h, query_mers, mers_index, prev_offset);
+                count = extend_hit(i, &mut h, query_mers, mers_index, prev_offset, params);
                 hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
                 hit_count_all += 1; 
             }
