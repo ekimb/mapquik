@@ -20,7 +20,7 @@ use indicatif::ProgressBar;
 
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
     //let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
-    let mers_index : Arc<DashMap<Kminmer,  String>> =  Arc::new(DashMap::new());
+    let mers_index : Arc<DashMap<Vec<u64>, Vec<(String, Kminmer)>>> =  Arc::new(DashMap::new());
     let query_mers_index : Arc<DashMap<u64, usize>> =  Arc::new(DashMap::new());
     let mut all_matches = Vec::<(Vec<Match>, String)>::new();
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
@@ -104,10 +104,10 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         let mut kminmers = mers::kminmers(&sk, &pos, params);
         if !read {
             for kminmer in kminmers.iter() {
-                if mers_index.get_mut(&kminmer).is_some() {
-                    mers_index.remove(&kminmer);
+                if mers_index.get_mut(&kminmer.mers()).is_some() {
+                    mers_index.get_mut(&kminmer.mers()).unwrap().push((seq_id.to_string(), kminmer.clone()));
                 }
-                else {mers_index.insert(kminmer.clone(),  seq_id.to_string());}
+                else {mers_index.insert(kminmer.mers().clone(),  vec![(seq_id.to_string(), kminmer.clone())]);}
             }
         }
         lens.insert(seq_id.to_string(), seq.len());
@@ -133,8 +133,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         return (seq.len(), kminmers);
     };
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
-        let (seq_len, unique_mers) = index_mers(ref_id, ref_str, params, false);
-        println!("Indexed {} unique reference k-mers.", unique_mers.len());
+        let (seq_len, mers) = index_mers(ref_id, ref_str, params, false);
+        println!("Indexed {} reference k-mers.", mers.len());
         return Some(1)
     
     };
