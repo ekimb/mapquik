@@ -45,12 +45,14 @@ pub fn encode_rle(inp_seq: &str) -> (String, Vec<usize>) {
     (hpc_seq, pos_vec)
 }
 
-pub fn extract(inp_seq_raw: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
+pub fn extract(inp_seq_raw: &[u8], params: &Params, alt: bool) -> (Vec<u64>, Vec<usize>) {
     let density = params.density;
     let l = params.l;
+    let k = params.k;
     let mut read_minimizers_pos = Vec::<usize>::new();
     let mut read_transformed = Vec::<u64>::new();
     let hash_bound = ((density as f64) * (u64::max_value() as f64)) as u64;
+    let hash_bound2 = ((1.0 - density as f64) * (u64::max_value() as f64)) as u64;
     let mut tup = (String::new(), Vec::<usize>::new());
     let inp_seq = String::from_utf8(inp_seq_raw.to_vec()).unwrap();
     let mut seq;
@@ -64,20 +66,38 @@ pub fn extract(inp_seq_raw: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
     if seq.len() < l {
         return (read_transformed, read_minimizers_pos)
     }
-    let iter = NtHashIterator::new(seq.as_bytes(), l).unwrap().enumerate().filter(|(_i, x)| *x <= hash_bound);
-    for (i, hash) in iter {
-        if !params.use_hpc {read_minimizers_pos.push(tup.1[i]);} //if not HPCd need raw sequence positions
-        else {read_minimizers_pos.push(i);} //already HPCd so positions are the same
-        read_transformed.push(hash);
+    if !alt {
+        let iter = NtHashIterator::new(seq.as_bytes(), l).unwrap().enumerate().filter(|(_i, x)| *x <= hash_bound);
+        for (i, hash) in iter {
+            if !params.use_hpc {read_minimizers_pos.push(tup.1[i]);} //if not HPCd need raw sequence positions
+            else {read_minimizers_pos.push(i);} //already HPCd so positions are the same
+            read_transformed.push(hash);
+        }
+    }
+    else {
+        let iter = NtHashIterator::new(seq.as_bytes(), l).unwrap().enumerate().filter(|(_i, x)| *x >= hash_bound2);
+        for (i, hash) in iter {
+            if !params.use_hpc {read_minimizers_pos.push(tup.1[i]);} //if not HPCd need raw sequence positions
+            else {read_minimizers_pos.push(i);} //already HPCd so positions are the same
+            read_transformed.push(hash);
+        }
     }
     return (read_transformed, read_minimizers_pos)
-
 }
 
-pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer> {
+pub fn kminmers(seq: &[u8], sk: &Vec<u64>, pos: &Vec<usize>, params: &Params, read: bool) -> Vec<Kminmer> {
     let k = params.k;
     let mut kminmers = Vec::<Kminmer>::new();
-    if sk.len() >= k {
+    if sk.len() < k || !read {
+        let (mut alt_sk, mut alt_pos) = extract(seq, params, true);
+        if alt_sk.len() >= k {
+            for i in 0..(alt_sk.len() - k + 1) {
+                let kminmer = Kminmer::new(&alt_sk[i..i+k], alt_pos[i], alt_pos[i + k - 1], i);
+                kminmers.push(kminmer);
+            }
+        }
+    }
+    if sk.len() >= k || !read {
         for i in 0..(sk.len() - k + 1) {
             let kminmer = Kminmer::new(&sk[i..i+k], pos[i], pos[i + k - 1], i);
             kminmers.push(kminmer);
