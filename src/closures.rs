@@ -30,6 +30,11 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
         Ok(paf_file) => paf_file,
     };
+    let unmap_path = format!("{}{}", output_prefix.to_str().unwrap(), ".unmapped.out");
+    let mut unmap_file = match File::create(&unmap_path) {
+        Err(why) => panic!("Couldn't create {}: {}", unmap_path, why.description()),
+        Ok(unmap_file) => unmap_file,
+    };
     let lens : DashMap<String, usize> = DashMap::new();
 
     /*let count_lmers = |seq_id: &str, seq: &[u8], params: &Params| {
@@ -156,10 +161,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         let mut output = Vec::<Match>::new();
         let (seq_len, kminmers) = index_mers(seq_id, seq_str, params, true);
         output = mers::find_hits(&seq_id, seq_len, &kminmers, &lens, &mers_index, params);
-        if output.len() > 0 {
-            return Some((output, seq_id.to_string()))
-        }
-        else {return None}
+        return Some((output, seq_id.to_string()))
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<Match>, String)>| {
         let seq_str = record.seq(); 
@@ -194,11 +196,11 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
     if fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
         read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&mut all_matches, &mut paf_file, params);
+        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params);
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
         read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&mut all_matches, &mut paf_file, params);
+        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params);
     }
 }

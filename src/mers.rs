@@ -247,8 +247,12 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
     return final_matches
 }
 
-pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File, params: &Params) {
+pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File, unmap_file: &mut File, params: &Params) {
     for (matches, id) in all_matches.iter() {
+        if matches.len() == 0 {
+            write!(unmap_file, "{}\n", id).expect("Error writing line.");
+            continue;
+        }
         let v = matches.iter().max_by(|a, b| a.8.cmp(&b.8)).unwrap();
         let query_id = v.0.to_string();
         let ref_id = v.1.to_string();

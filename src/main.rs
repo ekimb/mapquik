@@ -432,11 +432,6 @@ fn main() {
                              // parsing
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
-    let paf_path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
-    let paf_file = match File::create(&paf_path) {
-        Err(why) => panic!("Couldn't create {}: {}", paf_path, why.description()),
-        Ok(paf_file) => paf_file,
-    };
     closures::run_mers(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
