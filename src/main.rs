@@ -275,10 +275,10 @@ struct Opt {
     #[structopt(short, long)]
     f: Option<usize>,
     /// Syncmer-based window minimum value.
-    #[structopt(short, long)]
+    #[structopt(long)]
     wmin: Option<usize>,
     /// Syncmer-based window maximum value.
-    #[structopt(short, long)]
+    #[structopt(long)]
     wmax: Option<usize>,
     /// Reference genome input
     ///
