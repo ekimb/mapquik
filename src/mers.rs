@@ -176,7 +176,7 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
         let mer_id_vec = tup.value();
         for (ref_id, mer) in mer_id_vec.iter() {
             if mer_id_vec.len() > params.f {return h.hit_count;}
-            if ref_id == &h.ref_id && (mer.offset as i32 - prev_offset as i32).abs() == 1 && ((q.rev != mer.rev) == h.is_rc) {
+            if ref_id == &h.ref_id && (mer.offset as i32 - prev_offset as i32).abs() <= params.g as i32 && ((q.rev != mer.rev) == h.is_rc) {
                 //println!("Q\t{}\t{}\tR\t{}\t{}\t{}", q.start, q.end, mer.start, mer.end, (q.rev != mer.rev));
                 if h.is_rc {
                     h.ref_s = mer.start;
