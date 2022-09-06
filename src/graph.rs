@@ -6,7 +6,6 @@ pub struct DAG {
     graph: Option<HashMap<usize, Vec<usize>>>,
     weights: HashMap<(usize, usize), usize>,
     count: usize,
-    sources: Vec<usize>,
 }
 
 impl DAG {
@@ -14,22 +13,18 @@ impl DAG {
         // DirectedGraph { graph: None }
         let mut adjacency_list: HashMap<usize, Vec<usize>> = HashMap::new();
         let mut weights: HashMap<(usize, usize), usize> = HashMap::new();
-        let mut indegree_nonzero: Vec<bool> = vec![false; node_count];
 
         let graph = graph_info.get(0..);
         for value in graph.unwrap() {
 
             let source_vertex = &mut adjacency_list.entry(value.0).or_insert(vec![]);
             source_vertex.push(value.1);
-            indegree_nonzero[value.1] = true;
             *weights.entry((value.0, value.1)).or_insert(0) = value.2;
         }
-        let mut indegree_zero = (0..node_count).collect::<Vec<usize>>().into_iter().filter(|x| !indegree_nonzero[*x]).collect::<Vec<usize>>();
         let the_graph = DAG {
             graph: Some(adjacency_list),
             weights: weights,
             count: node_count,
-            sources: indegree_zero,
         };
         the_graph
     }
@@ -59,9 +54,11 @@ impl DAG {
         }
         // }
     }
+
     pub fn longest_paths(&self) -> Vec<(usize, Vec<usize>, usize)> {
         let mut paths_per_node = Vec::<(usize, Vec<usize>, usize)>::new();
-        for node in self.sources.iter() {
+        let source_nodes = self.graph.as_ref().unwrap().keys();
+        for node in source_nodes {
             let V = self.count;
             let mut stack = self.get_topological_order(node);
             let mut scores: Vec<i32> = vec![i32::MIN; V];

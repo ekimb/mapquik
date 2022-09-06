@@ -1,7 +1,7 @@
 echo "hifimap -------------"
 
 
-/usr/bin/time cargo run --release -- nearperfect-ecoli.10X.fa --reference ecoli.genome.fa -k 8 -d 0.01 -l 16 -p hifimap -g 100 --threads 11
+/usr/bin/time cargo run --release -- nearperfect-ecoli.10X.fa --reference ecoli.genome.fa --debug -k 8 -d 0.01 -l 16 -p hifimap -g 100 --threads 11
 paftools.js mapeval hifimap.paf
 
 echo "minimap2 -------------"

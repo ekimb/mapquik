@@ -121,8 +121,8 @@ pub fn get_edges(hits: &Vec<&Hit>, params: &Params) -> Vec<(usize, usize, usize)
                 hits[u].query_s < hits[v].query_s &&
                 hits[u].query_e < hits[v].query_e &&
                 hits[u].query_offset < hits[v].query_offset &&
-                (offset_difference as usize * l) <= hits[u].match_score {
-                    info.push((u, v, (hits[u].match_score - (offset_difference as usize * l))));
+                offset_difference as usize  <= 10 {
+                    info.push((u, v, hits[u].match_score));
                 }
             }
             else if hits[u].is_rc == hits[v].is_rc && hits[u].is_rc {
@@ -133,8 +133,8 @@ pub fn get_edges(hits: &Vec<&Hit>, params: &Params) -> Vec<(usize, usize, usize)
                 hits[u].query_s < hits[v].query_s &&
                 hits[u].query_e < hits[v].query_e &&
                 hits[u].query_offset < hits[v].query_offset &&
-                (offset_difference as usize * l) <= hits[u].match_score {
-                    info.push((u, v, (hits[u].match_score - (offset_difference as usize * l))));
+                offset_difference as usize <= 10 {
+                    info.push((u, v, hits[u].match_score));
                 }
             }
         }
