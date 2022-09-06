@@ -8,7 +8,7 @@
 *.lcp.gz
 small-example/*
 *.genome.fa
-*.10X.fa
+*.10X.*
 src/trash.rs
 ref/
 *.graphml
@@ -26,3 +26,6 @@ src/graph.py
 compute_err.py
 .DS_Store
 *.out
+*.unmapped*
+minimap2-2.24
+minimap2-2.24_x64-linux/

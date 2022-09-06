@@ -36,6 +36,7 @@ mod paf_output;
 mod closures;
 mod mers;
 mod kminmer;
+mod graph;
 const revcomp_aware : bool = true; // shouldn't be set to false except for strand-directed data or for debugging
 #[derive(Clone, Debug)] // seems necessary to move out of the Arc into dbg_nodes_view
 pub struct HashEntry {origin: String, seq: String, seqlen: u32, shift: (usize, usize), seq_rev: bool}
@@ -334,7 +335,7 @@ fn main() {
     let mut l : usize = 12;
     let mut wmax : usize = 0;
     let mut wmin : usize = 0;
-    let mut f : usize = 10;
+    let mut f : usize = 0;
     let mut s : usize = 0;
     let mut density : f64 = 0.10;
     let reference : bool = false;
