@@ -260,22 +260,24 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
         let mer_hash = tup.key();
         let mer_id_vec = tup.value();
         for (ref_id, mer) in mer_id_vec.iter() {
-            if ref_id == &h.ref_id && (mer.offset as i32 - prev_mer.offset as i32).abs() == 1 as i32 && ((q.rev != mer.rev) == h.is_rc) {
+            if ref_id == &h.ref_id && ((q.rev != mer.rev) == h.is_rc) {
+                if (h.is_rc && (prev_mer.offset as i32 - mer.offset as i32) == 1) || (!h.is_rc && (prev_mer.offset as i32 - mer.offset as i32) == -1) {
                 //println!("Q\t{}\t{}\tR\t{}\t{}\t{}", q.start, q.end, mer.start, mer.end, (q.rev != mer.rev));
-                if h.is_rc {
-                    h.ref_s = mer.start;
+                    if h.is_rc {
+                        h.ref_s = mer.start;
+                    }
+                    else {
+                        h.ref_e = mer.end;
+                    }
+                    h.query_e = q.end;
+                    h.query_span = q.end - h.query_s + 1;
+                    h.ref_span = mer.end - h.ref_s + 1;
+                    h.hit_count += 1;
+                    let new_score = match_score_extend(q, &query_mers[index], mer, prev_mer, h.match_score, params);
+                    h.match_score += new_score;
+                    //println!("QUERY ID: {}\tstart {}\tend {}\toffset {}\nREF ID: {}\tstart {}\tend {}\toffset {}\nSCORE: {}", h.query_id.to_string(), q.start, q.end, q.offset, ref_id.to_string(), mer.start, mer.end, mer.offset, h.match_score);
+                    extend_hit(index + 1, h, query_mers, mers_index, mer, params);
                 }
-                else {
-                    h.ref_e = mer.end;
-                }
-                h.query_e = q.end;
-                h.query_span = q.end - h.query_s + 1;
-                h.ref_span = mer.end - h.ref_s + 1;
-                h.hit_count += 1;
-                let new_score = match_score_extend(q, &query_mers[index], mer, prev_mer, h.match_score, params);
-                h.match_score += new_score;
-                //println!("QUERY ID: {}\tstart {}\tend {}\toffset {}\nREF ID: {}\tstart {}\tend {}\toffset {}\nSCORE: {}", h.query_id.to_string(), q.start, q.end, q.offset, ref_id.to_string(), mer.start, mer.end, mer.offset, h.match_score);
-                extend_hit(index + 1, h, query_mers, mers_index, mer, params);
             }
         }
     }

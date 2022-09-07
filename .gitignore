@@ -29,3 +29,4 @@ compute_err.py
 *.unmapped*
 minimap2-2.24
 minimap2-2.24_x64-linux/
+experiments/chm13/badread.fa
