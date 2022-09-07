@@ -108,47 +108,116 @@ pub fn mapq_calc(h1: &Vec<&Hit>, h2: &Vec<&Hit>) -> usize {
     return (40.0 * (1.0 - (f2 / f1)) * 1.0_f64.min((hits(&h1) as f64 /10.0)) * f1.ln()) as usize;
 }
 
-pub fn get_edges(hits: &Vec<&Hit>, params: &Params) -> Vec<(usize, usize, usize)> {
-    let mut info = Vec::<(usize, usize, usize)>::new();
-    let k = params.k; let l = params.l;
-    for u in 0..hits.len() - 1 {
-        for v in u + 1..hits.len() {
-            if hits[u].is_rc == hits[v].is_rc && !hits[u].is_rc {
-                let offset_difference = ((hits[v].query_offset - hits[u].query_offset) as i32 - (hits[v].ref_offset - hits[u].ref_offset) as i32).abs();
-                if hits[u].ref_s < hits[v].ref_s &&
-                hits[u].ref_e < hits[v].ref_e &&
-                hits[u].ref_offset < hits[v].ref_offset &&
-                hits[u].query_s < hits[v].query_s &&
-                hits[u].query_e < hits[v].query_e &&
-                hits[u].query_offset < hits[v].query_offset &&
-                offset_difference as usize  <= 10 {
-                    info.push((u, v, hits[u].match_score));
-                }
-            }
-            else if hits[u].is_rc == hits[v].is_rc && hits[u].is_rc {
-                let offset_difference =  ((hits[v].query_offset - hits[u].query_offset) as i32 - (hits[u].ref_offset - hits[v].ref_offset) as i32).abs();
-                if hits[u].ref_s > hits[v].ref_s &&
-                hits[u].ref_e > hits[v].ref_e &&
-                hits[u].ref_offset > hits[v].ref_offset &&
-                hits[u].query_s < hits[v].query_s &&
-                hits[u].query_e < hits[v].query_e &&
-                hits[u].query_offset < hits[v].query_offset &&
-                offset_difference as usize <= 10 {
-                    info.push((u, v, hits[u].match_score));
-                }
+pub fn is_edge(hits: &Vec<&Hit>, u: usize, v: usize) -> bool {
+    if hits[u].is_rc == hits[v].is_rc && !hits[u].is_rc {
+        let offset_difference = ((hits[v].query_offset - hits[u].query_offset) as i32 - (hits[v].ref_offset - hits[u].ref_offset) as i32).abs();
+        if hits[u].ref_s < hits[v].ref_s &&
+        hits[u].ref_e < hits[v].ref_e &&
+        hits[u].ref_offset < hits[v].ref_offset &&
+        hits[u].query_s < hits[v].query_s &&
+        hits[u].query_e < hits[v].query_e &&
+        hits[u].query_offset < hits[v].query_offset &&
+        offset_difference as usize <= 10 {
+            return true;
+        }
+    }
+    else if hits[u].is_rc == hits[v].is_rc && hits[u].is_rc {
+        let offset_difference =  ((hits[v].query_offset - hits[u].query_offset) as i32 - (hits[u].ref_offset - hits[v].ref_offset) as i32).abs();
+        if hits[u].ref_s > hits[v].ref_s &&
+        hits[u].ref_e > hits[v].ref_e &&
+        hits[u].ref_offset > hits[v].ref_offset &&
+        hits[u].query_s < hits[v].query_s &&
+        hits[u].query_e < hits[v].query_e &&
+        hits[u].query_offset < hits[v].query_offset &&
+        offset_difference as usize <= 10 {
+            return true;
+        }
+    }
+    return false;
+}
+
+pub fn get_next_hit(hits: &Vec<&Hit>, start_hit_idx: &usize, i: usize, gap: usize, path: &mut Vec<usize>, hit_per_offset: &HashMap<usize, Vec<usize>>, offsets: &Vec<usize>, visited: &mut Vec<bool>) {
+    visited[*start_hit_idx] = true;
+    if i + gap + 1 >= offsets.len() {return;}
+    let next_offset = offsets[i + gap + 1];
+    let possible_hits = hit_per_offset[&next_offset].iter().filter(|&j| is_edge(hits, *start_hit_idx, *j)).cloned().collect::<Vec<usize>>();
+    if !possible_hits.is_empty() {
+        let mut max_hit = possible_hits.iter().max_by(|a, b| hits[**a].match_score.cmp(&hits[**b].match_score)).unwrap();
+        path.push(*max_hit);
+        return get_next_hit(hits, max_hit, i + 1, gap, path, hit_per_offset, offsets, visited);
+    }
+    else {
+        return get_next_hit(hits, start_hit_idx, i + 1, gap + 1, path, hit_per_offset, offsets, visited);
+    }
+}
+
+pub fn get_edges(hits: &Vec<&Hit>, params: &Params) -> (Vec<Vec<usize>>, usize) {
+    let mut hit_per_offset = HashMap::<usize, Vec<usize>>::new();
+    let mut offsets_set = HashSet::<usize>::new();
+    let mut visited : Vec<bool> = vec![false; hits.len()];
+    let mut possible_paths = Vec::<Vec<usize>>::new();
+    for i in 0..hits.len() {
+        offsets_set.insert(hits[i].query_offset);
+        hit_per_offset.entry(hits[i].query_offset).or_insert(Vec::new()).push(i);
+    }
+    let mut offsets = offsets_set.into_iter().collect::<Vec<usize>>();
+
+    let mut max_score = 0;
+    let mut max_path = Vec::<usize>::new();
+
+    for i in 0..offsets.len() {
+        let mut curr_offset = offsets[i];
+        let mut curr_hits = &hit_per_offset[&curr_offset];
+        for curr_hit in curr_hits.iter() {
+            if !visited[*curr_hit] {
+                let mut possible_path = Vec::<usize>::new();
+                possible_path.push(*curr_hit);
+                get_next_hit(hits, curr_hit, i, 0, &mut possible_path, &hit_per_offset, &offsets, &mut visited);
+                possible_paths.push(possible_path);
             }
         }
     }
-    info
+    let mut max_length = possible_paths.iter().map(|p| p.len()).max().unwrap();
+    let mut max_length_paths = possible_paths.iter().filter(|p| p.len() == max_length).cloned().collect::<Vec<Vec<usize>>>();
+    let mut max_score = max_length_paths.iter().map(|p| p.iter().map(|idx| hits[*idx].match_score).sum::<usize>()).max().unwrap();
+    let mut max_score_paths = max_length_paths.iter().filter(|p| p.iter().map(|idx| hits[*idx].match_score).sum::<usize>() == max_score).cloned().collect::<Vec<Vec<usize>>>();
+
+    if params.debug {
+        for max_score_path in max_score_paths.iter() {
+            println!("-----------");
+            for j in max_score_path.iter() {
+                let hit = hits[*j];
+                println!("POSSIBLE PATH NODE:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}", hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score);
+            }
+        }
+    }
+    (max_score_paths, max_score)
 }
 
 pub fn partition(hits: &mut Vec<&Hit>, params: &Params) -> (usize, usize) {
-    let mut mapq = 60;
+    let mut mapq = 0;
     let mut score = 0;
     if hits.len() > 1 {
         hits.sort_by(|a, b| a.query_offset.cmp(&b.query_offset));
-        let edges = get_edges(hits, params);
-        let dag = DAG::new(edges, hits.len());
+        let (best_paths, best_score) = get_edges(hits, params);
+        if best_paths.len() == 1 {mapq = 60;}
+        else if best_paths.is_empty(){return (0, 0);}
+        else {mapq = 0;}
+        if params.debug {
+            for best_path in best_paths.iter() {
+                println!("-----------");
+                for j in best_path.iter() {
+                    let hit = hits[*j];
+                    println!("PATH NODE:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}", hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score);
+                }
+            }
+        }
+        if hits.len() <= 1 {return (0, 0);}
+        let best_hits = best_paths[0].iter().map(|i| hits[*i]).collect::<Vec<&Hit>>();
+        *hits = best_hits;
+        score = best_score;        
+        
+        /*let dag = DAG::new(edges, hits.len());
         let mut longest_per_node = dag.longest_paths();
         if longest_per_node.is_empty() {return (0, 0);}
         longest_per_node.sort_by(|a, b| a.2.cmp(&b.2));
@@ -203,7 +272,7 @@ pub fn partition(hits: &mut Vec<&Hit>, params: &Params) -> (usize, usize) {
         };
         //println!("MAX SCORE {}\tMAPQ {}", score(&v[0].1), mapq);
         *hits = v[0].1.clone();
-        */
+        */*/
     }
     (mapq, score)
 }
@@ -339,12 +408,13 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
             let (fwd_mapq, fwd_score) = partition(&mut fwd, params);
             let (rc_mapq, rc_score) = partition(&mut rc, params);
             if params.debug{println!("FWD HIT LEN {} SCORE {}\tRC HIT LEN {}\tSCORE {}", fwd.len(), fwd_score, rc.len(), rc_score);}
-            let mut hits = match rc_score > fwd_score {
+            let mut is_rc = (rc_mapq > fwd_mapq) || (rc_mapq == fwd_mapq && rc_score > fwd_score);
+            let mut hits = match is_rc {
                 true => rc,
                 false => fwd,
             };
             if hits.is_empty() {continue;}
-            let mut mapq = match rc_score > fwd_score {
+            let mut mapq = match is_rc {
                 true => rc_mapq,
                 false => fwd_mapq,
             };
