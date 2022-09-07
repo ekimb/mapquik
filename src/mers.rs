@@ -212,9 +212,9 @@ pub fn check_offsets(hits: &mut Vec<&Hit>, params: &Params) -> Vec<Vec<usize>> {
             prev_offset_diff = curr_offset_diff;
         }
         else {offset_assign[prev_idx].push(i);}
-        println!("hit {:?}\noffset diff {}", hits[i], curr_offset_diff);
+       // println!("hit {:?}\noffset diff {}", hits[i], curr_offset_diff);
     }
-    println!("OFFSET ASSIGN {:?}", offset_assign);
+    //println!("OFFSET ASSIGN {:?}", offset_assign);
     return offset_assign.to_vec()
 
 }
