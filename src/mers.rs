@@ -194,28 +194,63 @@ pub fn get_edges(hits: &Vec<&Hit>, params: &Params) -> (Vec<Vec<usize>>, usize) 
     (max_score_paths, max_score)
 }
 
+pub fn offset_difference(hit: &Hit) -> usize {
+    (hit.query_offset as i32 - hit.ref_offset as i32).abs() as usize
+}
+
+pub fn check_offsets(hits: &mut Vec<&Hit>, params: &Params) -> Vec<Vec<usize>> {
+    hits.sort_by(|a, b| offset_difference(a).cmp(&offset_difference(b)));
+    let mut offset_assign = vec![vec![]; hits.len()];
+    offset_assign[0].push(0);
+    let mut prev_offset_diff = offset_difference(hits[0]);
+    let mut prev_idx = 0;
+    for i in 1..hits.len() {
+        let curr_offset_diff = offset_difference(hits[i]);
+        if curr_offset_diff - prev_offset_diff > 1000 {
+            offset_assign[i].push(i);
+            prev_idx = i;
+            prev_offset_diff = curr_offset_diff;
+        }
+        else {offset_assign[prev_idx].push(i);}
+        println!("hit {:?}\noffset diff {}", hits[i], curr_offset_diff);
+    }
+    println!("OFFSET ASSIGN {:?}", offset_assign);
+    return offset_assign.to_vec()
+
+}
+
 pub fn partition(hits: &mut Vec<&Hit>, params: &Params) -> (usize, usize) {
     let mut mapq = 0;
     let mut score = 0;
     if hits.len() > 1 {
-        hits.sort_by(|a, b| a.query_offset.cmp(&b.query_offset));
-        let (best_paths, best_score) = get_edges(hits, params);
-        if best_paths.len() == 1 {mapq = 60;}
-        else if best_paths.is_empty(){return (0, 0);}
-        else {mapq = 0;}
-        if params.debug {
-            for best_path in best_paths.iter() {
-                println!("-----------");
-                for j in best_path.iter() {
-                    let hit = hits[*j];
-                    println!("PATH NODE:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}", hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score);
-                }
-            }
-        }
-        if hits.len() <= 1 {return (0, 0);}
-        let best_hits = best_paths[0].iter().map(|i| hits[*i]).collect::<Vec<&Hit>>();
-        *hits = best_hits;
-        score = best_score;        
+        let mut offset_assign = check_offsets(hits, params);
+        offset_assign.sort_by(|a, b| a.len().cmp(&b.len()));
+        offset_assign.reverse();
+        if offset_assign[0].len() == offset_assign[1].len() {mapq = 0;}
+        else {mapq = 60;}
+        let mut max_run = offset_assign[0].iter().map(|i| hits[*i]).collect::<Vec<&Hit>>();
+        max_run.sort_by(|a, b| a.query_offset.cmp(&b.query_offset));
+        if max_run.len() <= 1 {return (0, 0);}
+       // let (best_paths, best_score) = get_edges(hits, params);
+        //if best_paths.len() == 1 {mapq = 60;}
+        //else if best_paths.is_empty(){return (0, 0);}
+        //else {mapq = 0;}
+        //if params.debug {
+        //    for best_path in best_paths.iter() {
+        //        println!("-----------");
+        //        for j in best_path.iter() {
+        //            let hit = hits[*j];
+        //            println!("PATH NODE:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}", hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score);
+        //        }
+        //    }
+        //}
+       // if hits.len() <= 1 {return (0, 0);}
+        //let best_hits = best_paths[0].iter().map(|i| hits[*i]).collect::<Vec<&Hit>>();
+        //*hits = best_hits;
+        //score = best_score;   
+        let mut max_score = max_run.iter().map(|h| h.match_score).sum::<usize>();     
+        *hits = max_run;
+        score = max_score;
         
         /*let dag = DAG::new(edges, hits.len());
         let mut longest_per_node = dag.longest_paths();
