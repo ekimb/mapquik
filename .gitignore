@@ -21,6 +21,7 @@ runs
 *.paf
 *.maf
 *.ref
+*.zst
 Cargo.lock
 src/graph.py
 compute_err.py

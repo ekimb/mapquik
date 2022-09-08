@@ -3,12 +3,16 @@ use crate::DashMap;
 use crate::File;
 use std::io::Write;
 use crate::kminmer::Kminmer;
-use crate::graph::DAG;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use nthash::NtHashIterator;
 use std::cmp;
 use super::Params;
+use crate::closures::Entry;
+use std::hash::{Hash, Hasher};
+use std::collections::hash_map::DefaultHasher;
+use crate::utils::normalize_vec;
+
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
 pub type Mer = (u64, usize, usize, usize, bool);
 #[derive(Clone, Debug)]
@@ -33,6 +37,7 @@ pub fn encode_rle(inp_seq: &str) -> (String, Vec<usize>) {
     let mut prev_char = '#';
     let mut hpc_seq = String::new();
     let mut pos_vec = Vec::<usize>::new();
+
     let mut prev_i = 0;
     for (i, c) in inp_seq.chars().enumerate() {
         if c == prev_char && "ACTGactgNn".contains(c) {continue;}
@@ -77,7 +82,25 @@ pub fn extract(inp_seq_raw: &[u8], params: &Params) -> (Vec<u64>, Vec<usize>) {
 
 }
 
-pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer> {
+pub fn ref_kminmers(seq_id: &str, sk: &Vec<u64>, pos: &Vec<usize>, params: &Params, mers_index: &DashMap<u64, Vec<(String, Entry)>>) {
+    let k = params.k;
+    let mut kminmers = Vec::<Kminmer>::new();
+    if sk.len() >= k {
+        for i in 0..(sk.len() - k + 1) {
+            let mers = sk[i..i+k].to_vec();
+            let (is_rc, norm) = normalize_vec(&mers);
+            let mut hash = DefaultHasher::new();
+            norm.hash(&mut hash);
+            let mut kmin_hash = hash.finish();
+            if mers_index.get_mut(&kmin_hash).is_some() {
+                mers_index.get_mut(&kmin_hash).unwrap().push((seq_id.to_string(), (pos[i], pos[i + k - 1], is_rc, i)));
+            }
+            else {mers_index.insert(kmin_hash, vec![(seq_id.to_string(), (pos[i], pos[i + k - 1], is_rc, i))]);}
+        }
+    }
+}
+
+pub fn query_kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer> {
     let k = params.k;
     let mut kminmers = Vec::<Kminmer>::new();
     if sk.len() >= k {
@@ -88,6 +111,21 @@ pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer
     }
     kminmers
 }
+
+
+
+
+/*pub fn kminmers(sk: &Vec<u64>, pos: &Vec<usize>, params: &Params) -> Vec<Kminmer> {
+    let k = params.k;
+    let mut kminmers = Vec::<Kminmer>::new();
+    if sk.len() >= k {
+        for i in 0..(sk.len() - k + 1) {
+            let kminmer = Kminmer::new(&sk[i..i+k], pos[i], pos[i + k - 1], i);
+            kminmers.push(kminmer);
+        }
+    }
+    kminmers
+}*/
 
 pub fn filter_hits(hits: &Vec<Hit>) -> (Vec<&Hit>, Vec<&Hit>) {
     let mut fwd = hits.iter().filter(|h| !h.is_rc).collect::<Vec<&Hit>>();
@@ -102,11 +140,6 @@ pub fn hits(h: &Vec<&Hit>) -> usize {
     return h.iter().map(|h| h.hit_count).sum::<usize>();
 }
 
-pub fn mapq_calc(h1: &Vec<&Hit>, h2: &Vec<&Hit>) -> usize {
-    let f1 = score(&h1) as f64;
-    let f2 = score(&h1) as f64;
-    return (40.0 * (1.0 - (f2 / f1)) * 1.0_f64.min((hits(&h1) as f64 /10.0)) * f1.ln()) as usize;
-}
 
 pub fn kminmer_mapq(best_len: usize, second_len: usize) -> usize {
     (60.0 * (1.0 - (second_len as f32/best_len as f32))) as usize
@@ -134,64 +167,6 @@ pub fn is_edge(hits: &Vec<&Hit>, u: usize, v: usize) -> bool {
         }
     }
     return false;
-}
-
-pub fn get_next_hit(hits: &Vec<&Hit>, start_hit_idx: &usize, i: usize, gap: usize, path: &mut Vec<usize>, hit_per_offset: &HashMap<usize, Vec<usize>>, offsets: &Vec<usize>, visited: &mut Vec<bool>) {
-    visited[*start_hit_idx] = true;
-    if i + gap + 1 >= offsets.len() {return;}
-    let next_offset = offsets[i + gap + 1];
-    let possible_hits = hit_per_offset[&next_offset].iter().filter(|&j| is_edge(hits, *start_hit_idx, *j)).cloned().collect::<Vec<usize>>();
-    if !possible_hits.is_empty() {
-        let mut max_hit = possible_hits.iter().max_by(|a, b| hits[**a].match_score.cmp(&hits[**b].match_score)).unwrap();
-        path.push(*max_hit);
-        return get_next_hit(hits, max_hit, i + 1, gap, path, hit_per_offset, offsets, visited);
-    }
-    else {
-        return get_next_hit(hits, start_hit_idx, i + 1, gap + 1, path, hit_per_offset, offsets, visited);
-    }
-}
-
-pub fn get_edges(hits: &Vec<&Hit>, params: &Params) -> (Vec<Vec<usize>>, usize) {
-    let mut hit_per_offset = HashMap::<usize, Vec<usize>>::new();
-    let mut offsets_set = HashSet::<usize>::new();
-    let mut visited : Vec<bool> = vec![false; hits.len()];
-    let mut possible_paths = Vec::<Vec<usize>>::new();
-    for i in 0..hits.len() {
-        offsets_set.insert(hits[i].query_offset);
-        hit_per_offset.entry(hits[i].query_offset).or_insert(Vec::new()).push(i);
-    }
-    let mut offsets = offsets_set.into_iter().collect::<Vec<usize>>();
-
-    let mut max_score = 0;
-    let mut max_path = Vec::<usize>::new();
-
-    for i in 0..offsets.len() {
-        let mut curr_offset = offsets[i];
-        let mut curr_hits = &hit_per_offset[&curr_offset];
-        for curr_hit in curr_hits.iter() {
-            if !visited[*curr_hit] {
-                let mut possible_path = Vec::<usize>::new();
-                possible_path.push(*curr_hit);
-                get_next_hit(hits, curr_hit, i, 0, &mut possible_path, &hit_per_offset, &offsets, &mut visited);
-                possible_paths.push(possible_path);
-            }
-        }
-    }
-    let mut max_length = possible_paths.iter().map(|p| p.len()).max().unwrap();
-    let mut max_length_paths = possible_paths.iter().filter(|p| p.len() == max_length).cloned().collect::<Vec<Vec<usize>>>();
-    let mut max_score = max_length_paths.iter().map(|p| p.iter().map(|idx| hits[*idx].match_score).sum::<usize>()).max().unwrap();
-    let mut max_score_paths = max_length_paths.iter().filter(|p| p.iter().map(|idx| hits[*idx].match_score).sum::<usize>() == max_score).cloned().collect::<Vec<Vec<usize>>>();
-
-    if params.debug {
-        for max_score_path in max_score_paths.iter() {
-            println!("-----------");
-            for j in max_score_path.iter() {
-                let hit = hits[*j];
-                println!("POSSIBLE PATH NODE:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}", hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score);
-            }
-        }
-    }
-    (max_score_paths, max_score)
 }
 
 pub fn offset_difference(hit: &Hit) -> usize {
@@ -257,7 +232,7 @@ pub fn partition(hits: &mut Vec<&Hit>, params: &Params) -> (usize, usize) {
         mapq = kminmer_mapq(offset_assign[0].len(), offset_assign[1].len());
         let mut max_run = offset_assign[0].iter().map(|i| hits[*i]).collect::<Vec<&Hit>>();
         max_run.sort_by(|a, b| a.query_offset.cmp(&b.query_offset));
-        if max_run.len() <= 1 {return (0, 0);}
+        if max_run.len() < 1 {return (0, 0);}
         if params.debug {
             for i in 0..max_run.len() {
                 let hit = max_run[i];
@@ -394,29 +369,31 @@ pub fn find_coords(hits: &Vec<&Hit>, rc: bool, ref_id: &str, ref_len: usize, que
     }*/
     (query_id.to_string(), ref_id.to_string(), query_len, ref_len, final_query_s, final_query_e, final_ref_s, final_ref_e, score, rc, mapq)
 }
-pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_index: &DashMap<Vec<u64>, Vec<(String, Kminmer)>>, prev_mer: &Kminmer, params: &Params) -> usize {
+pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_index: &DashMap<u64, Vec<(String, Entry)>>, prev_mer: &Entry, params: &Params) -> usize {
+    let (prev_mer_start, prev_mer_end, prev_mer_rev, prev_mer_offset) = prev_mer;
     if index == query_mers.len() - 1 {return h.hit_count;}
     let q = &query_mers[index + 1];
-    let mer_entry = mers_index.get(&q.mers());
+    let mer_entry = mers_index.get(&q.get_hash());
     if mer_entry.is_some() {
         let tup = mer_entry.unwrap();
         let mer_hash = tup.key();
         let mer_id_vec = tup.value();
         for (ref_id, mer) in mer_id_vec.iter() {
-            if ref_id == &h.ref_id && ((q.rev != mer.rev) == h.is_rc) {
-                if (h.is_rc && (prev_mer.offset as i32 - mer.offset as i32) == 1) || (!h.is_rc && (prev_mer.offset as i32 - mer.offset as i32) == -1) {
+            let (mer_start, mer_end, mer_rev, mer_offset) = mer;
+            if ref_id == &h.ref_id && ((q.rev != *mer_rev) == h.is_rc) {
+                if (h.is_rc && (*prev_mer_offset as i32 - *mer_offset as i32) == 1) || (!h.is_rc && (*prev_mer_offset as i32 - *mer_offset as i32) == -1) {
                 //println!("Q\t{}\t{}\tR\t{}\t{}\t{}", q.start, q.end, mer.start, mer.end, (q.rev != mer.rev));
                     if h.is_rc {
-                        h.ref_s = mer.start;
+                        h.ref_s = *mer_start;
                     }
                     else {
-                        h.ref_e = mer.end;
+                        h.ref_e = *mer_end;
                     }
                     h.query_e = q.end;
                     h.query_span = q.end - h.query_s + 1;
-                    h.ref_span = mer.end - h.ref_s + 1;
+                    h.ref_span = mer_end - h.ref_s + 1;
                     h.hit_count += 1;
-                    let new_score = match_score_extend(q, &query_mers[index], mer, prev_mer, h.match_score, params);
+                    let new_score = match_score_extend(q, &query_mers[index], *mer_end, *prev_mer_end, h.match_score, params);
                     h.match_score += new_score;
                     //println!("QUERY ID: {}\tstart {}\tend {}\toffset {}\nREF ID: {}\tstart {}\tend {}\toffset {}\nSCORE: {}", h.query_id.to_string(), q.start, q.end, q.offset, ref_id.to_string(), mer.start, mer.end, mer.offset, h.match_score);
                     extend_hit(index + 1, h, query_mers, mers_index, mer, params);
@@ -428,23 +405,22 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
     return h.hit_count;
 }
 
-pub fn match_score(q: &Kminmer, r: &Kminmer, params: &Params) -> usize {
-    cmp::min(cmp::min((q.end - q.start), (r.end - r.start)), (params.k * params.l))
+pub fn match_score(q: &Kminmer, r_end: usize, r_start: usize, params: &Params) -> usize {
+    cmp::min(cmp::min((q.end - q.start), (r_end - r_start)), (params.k * params.l))
 }
-pub fn match_score_extend(curr_q: &Kminmer, prev_q: &Kminmer, curr_r: &Kminmer, prev_r: &Kminmer, prev_score: usize, params: &Params) -> usize {
-    cmp::min(cmp::min(curr_q.end - prev_q.end, curr_r.end - prev_r.end), params.l)
+pub fn match_score_extend(curr_q: &Kminmer, prev_q: &Kminmer, curr_r_end: usize, prev_r_end: usize, prev_score: usize, params: &Params) -> usize {
+    cmp::min(cmp::min(curr_q.end - prev_q.end, curr_r_end - prev_r_end), params.l)
 }
 
-pub fn chain_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, mers_index: &DashMap<Vec<u64>, Vec<(String, Kminmer)>>, params: &Params) -> HashMap<String, Vec<Hit>> {
+pub fn chain_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, mers_index: &DashMap<u64, Vec<(String, Entry)>>, params: &Params) -> HashMap<String, Vec<Hit>> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let mut hit_count_all = 0;
     let l = params.l;
     let k = params.k;
-    let g = params.g;
     let mut i = 0;
     while i < query_mers.len() {
         let q = &query_mers[i];
-        let mer_entry = mers_index.get(&q.mers());
+        let mer_entry = mers_index.get(&q.get_hash());
         let mut count = 1;
         if mer_entry.is_some() {
             let tup = mer_entry.unwrap();
@@ -453,10 +429,11 @@ pub fn chain_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, m
             if mer_id_vec.len() > params.f && params.f != 0 {i += 1; continue;}
             //if mer_id_vec.len() > 1 
             for (ref_id, mer) in mer_id_vec.iter() {
-                let mut match_score = match_score(q, mer, params);
+                let (mer_start, mer_end, mer_rev, mer_offset) = mer;
+                let mut match_score = match_score(q, *mer_end, *mer_start, params);
                 //println!("QUERY ID: {}\tstart {}\tend {}\toffset {}\nREF ID: {}\tstart {}\tend {}\toffset {}\nSCORE: {}", query_id.to_string(), q.start, q.end, q.offset, ref_id.to_string(), mer.start, mer.end, mer.offset, match_score);
-                let mut h = Hit {query_id: query_id.to_string(), ref_id: ref_id.to_string(), query_s: q.start, query_e: q.end, ref_s: mer.start, ref_e: mer.end, hit_count: 1, match_score: match_score, is_rc: (q.rev != mer.rev), query_span: q.end - q.start + 1, ref_span: mer.start - mer.end + 1, query_offset: q.offset, ref_offset: mer.offset};
-                let mut prev_offset = mer.offset;
+                let mut h = Hit {query_id: query_id.to_string(), ref_id: ref_id.to_string(), query_s: q.start, query_e: q.end, ref_s: *mer_start, ref_e: *mer_end, hit_count: 1, match_score: match_score, is_rc: (q.rev != *mer_rev), query_span: q.end - q.start + 1, ref_span: *mer_start - *mer_end + 1, query_offset: q.offset, ref_offset: *mer_offset};
+                let mut prev_offset = *mer_offset;
                 count = extend_hit(i, &mut h, query_mers, mers_index, mer, params);
                 hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());
                 hit_count_all += 1; 
@@ -468,9 +445,10 @@ pub fn chain_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, m
     hits_per_ref
 }
 
-pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, ref_lens: &DashMap<String, usize>, mers_index: &DashMap<Vec<u64>, Vec<(String, Kminmer)>>, params: &Params) -> Vec<Match> {
-    let g = params.g;
-    let mut hits_per_ref = chain_hits(query_id, query_len, query_mers, mers_index, params);
+pub fn find_hits(query_id: &str, query_len: usize, query_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &DashMap<u64, Vec<(String, Entry)>>, params: &Params) -> Vec<Match> {   
+    let (mut sk, mut pos) = extract(query_str, params);
+    let mut query_mers = query_kminmers(&sk, &pos, params);
+    let mut hits_per_ref = chain_hits(query_id, query_len, &query_mers, mers_index, params);
     let mut final_matches = Vec::<Match>::new();    
     for (key, val) in hits_per_ref.into_iter() {
         let ref_id = key;
