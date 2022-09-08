@@ -108,28 +108,28 @@ pub fn mapq_calc(h1: &Vec<&Hit>, h2: &Vec<&Hit>) -> usize {
     return (40.0 * (1.0 - (f2 / f1)) * 1.0_f64.min((hits(&h1) as f64 /10.0)) * f1.ln()) as usize;
 }
 
+pub fn kminmer_mapq(best_len: usize, second_len: usize) -> usize {
+    (60.0 * (1.0 - (second_len as f32/best_len as f32))) as usize
+}
+
 pub fn is_edge(hits: &Vec<&Hit>, u: usize, v: usize) -> bool {
-    if hits[u].is_rc == hits[v].is_rc && !hits[u].is_rc {
-        let offset_difference = ((hits[v].query_offset - hits[u].query_offset) as i32 - (hits[v].ref_offset - hits[u].ref_offset) as i32).abs();
+    if !hits[u].is_rc {
         if hits[u].ref_s < hits[v].ref_s &&
         hits[u].ref_e < hits[v].ref_e &&
         hits[u].ref_offset < hits[v].ref_offset &&
         hits[u].query_s < hits[v].query_s &&
         hits[u].query_e < hits[v].query_e &&
-        hits[u].query_offset < hits[v].query_offset &&
-        offset_difference as usize <= 10 {
+        hits[u].query_offset < hits[v].query_offset {
             return true;
         }
     }
-    else if hits[u].is_rc == hits[v].is_rc && hits[u].is_rc {
-        let offset_difference =  ((hits[v].query_offset - hits[u].query_offset) as i32 - (hits[u].ref_offset - hits[v].ref_offset) as i32).abs();
+    else if  hits[u].is_rc {
         if hits[u].ref_s > hits[v].ref_s &&
         hits[u].ref_e > hits[v].ref_e &&
         hits[u].ref_offset > hits[v].ref_offset &&
         hits[u].query_s < hits[v].query_s &&
         hits[u].query_e < hits[v].query_e &&
-        hits[u].query_offset < hits[v].query_offset &&
-        offset_difference as usize <= 10 {
+        hits[u].query_offset < hits[v].query_offset {
             return true;
         }
     }
@@ -198,20 +198,48 @@ pub fn offset_difference(hit: &Hit) -> usize {
     (hit.query_offset as i32 - hit.ref_offset as i32).abs() as usize
 }
 
+pub fn check_compatibility(prev_offset_diff: usize, curr_offset_diff: usize, prev_hit: &Hit, curr_hit: &Hit) -> bool {
+    let hit_offset_diff = (curr_offset_diff - prev_offset_diff);
+    if hit_offset_diff < 1000 {
+        return true;
+    }
+    return false;
+}
+
+pub fn check_consistency(hits: &Vec<&Hit>) -> bool {
+    let mut prev_idx = 0;
+    for i in 1..hits.len() {
+        if !is_edge(hits, prev_idx, i) {
+            return false;
+        }
+        else {prev_idx = i;}
+    }
+    return true;
+} 
+
 pub fn check_offsets(hits: &mut Vec<&Hit>, params: &Params) -> Vec<Vec<usize>> {
     hits.sort_by(|a, b| offset_difference(a).cmp(&offset_difference(b)));
     let mut offset_assign = vec![vec![]; hits.len()];
     offset_assign[0].push(0);
     let mut prev_offset_diff = offset_difference(hits[0]);
     let mut prev_idx = 0;
+    let hit = hits[0];
+    if params.debug { println!("FIRST HIT:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}\tOFFSET_DIFF {}", hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score, prev_offset_diff); }
     for i in 1..hits.len() {
-        let curr_offset_diff = offset_difference(hits[i]);
-        if curr_offset_diff - prev_offset_diff > 1000 {
+        let mut curr_offset_diff = offset_difference(hits[i]);
+        if check_compatibility(prev_offset_diff, curr_offset_diff, hits[i-1], hits[i]) {
+            offset_assign[prev_idx].push(i);
+        }
+        else {
             offset_assign[i].push(i);
             prev_idx = i;
             prev_offset_diff = curr_offset_diff;
         }
-        else {offset_assign[prev_idx].push(i);}
+        if params.debug {
+            let hit = hits[i];
+            println!("HIT {}:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}\tOFFSET_DIFF_WRT_PREV {}", i, hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score, (curr_offset_diff as i32 - prev_offset_diff as i32));
+
+        }
        // println!("hit {:?}\noffset diff {}", hits[i], curr_offset_diff);
     }
     //println!("OFFSET ASSIGN {:?}", offset_assign);
@@ -226,11 +254,16 @@ pub fn partition(hits: &mut Vec<&Hit>, params: &Params) -> (usize, usize) {
         let mut offset_assign = check_offsets(hits, params);
         offset_assign.sort_by(|a, b| a.len().cmp(&b.len()));
         offset_assign.reverse();
-        if offset_assign[0].len() == offset_assign[1].len() {mapq = 0;}
-        else {mapq = 60;}
+        mapq = kminmer_mapq(offset_assign[0].len(), offset_assign[1].len());
         let mut max_run = offset_assign[0].iter().map(|i| hits[*i]).collect::<Vec<&Hit>>();
         max_run.sort_by(|a, b| a.query_offset.cmp(&b.query_offset));
         if max_run.len() <= 1 {return (0, 0);}
+        if params.debug {
+            for i in 0..max_run.len() {
+                let hit = max_run[i];
+                println!("HIT {}:\nQID {}\tQSTART {}\tQEND {}\tQOFF {}\tRID {}\tRSTART {}\tREND {}\tROFF {}\tRC {}\tCOUNT {}\tSCORE {}\tOFFSET_DIFF {}", i, hit.query_id, hit.query_s, hit.query_e, hit.query_offset, hit.ref_id, hit.ref_s, hit.ref_e, hit.ref_offset, hit.is_rc, hit.hit_count, hit.match_score, offset_difference(hit));
+            }
+        }
        // let (best_paths, best_score) = get_edges(hits, params);
         //if best_paths.len() == 1 {mapq = 60;}
         //else if best_paths.is_empty(){return (0, 0);}
@@ -247,10 +280,16 @@ pub fn partition(hits: &mut Vec<&Hit>, params: &Params) -> (usize, usize) {
        // if hits.len() <= 1 {return (0, 0);}
         //let best_hits = best_paths[0].iter().map(|i| hits[*i]).collect::<Vec<&Hit>>();
         //*hits = best_hits;
-        //score = best_score;   
-        let mut max_score = max_run.iter().map(|h| h.match_score).sum::<usize>();     
+        //score = best_score;  
         *hits = max_run;
-        score = max_score;
+        if check_consistency(&hits) {
+            let mut max_score = hits.iter().map(|h| h.match_score).sum::<usize>();     
+            score = max_score;
+        } 
+        else {
+            score = 0;
+            mapq = 0;
+        }
         
         /*let dag = DAG::new(edges, hits.len());
         let mut longest_per_node = dag.longest_paths();
@@ -442,7 +481,7 @@ pub fn find_hits(query_id: &str, query_len: usize, query_mers: &Vec<Kminmer>, re
             rc.reverse();
             let (fwd_mapq, fwd_score) = partition(&mut fwd, params);
             let (rc_mapq, rc_score) = partition(&mut rc, params);
-            if params.debug{println!("FWD HIT LEN {} SCORE {}\tRC HIT LEN {}\tSCORE {}", fwd.len(), fwd_score, rc.len(), rc_score);}
+            //if params.debug{println!("FWD HIT LEN {} SCORE {}\tRC HIT LEN {}\tSCORE {}", fwd.len(), fwd_score, rc.len(), rc_score);}
             let mut is_rc = (rc_mapq > fwd_mapq) || (rc_mapq == fwd_mapq && rc_score > fwd_score);
             let mut hits = match is_rc {
                 true => rc,
@@ -479,7 +518,7 @@ pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File, 
         let score = v.8;
         let rc : String = match v.9 {true => "-".to_string(), false => "+".to_string()};
         let mapq = v.10;
-        if mapq == 0 {
+        if mapq < 30 {
             write!(unmap_file, "{}\n", id).expect("Error writing line.");
         }
         if query_id == ref_id && query_s == ref_s && query_e == ref_e {continue;}
