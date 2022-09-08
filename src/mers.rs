@@ -518,7 +518,7 @@ pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File, 
         let score = v.8;
         let rc : String = match v.9 {true => "-".to_string(), false => "+".to_string()};
         let mapq = v.10;
-        if mapq < 30 {
+        if mapq <= 30 {
             write!(unmap_file, "{}\n", id).expect("Error writing line.");
         }
         if query_id == ref_id && query_s == ref_s && query_e == ref_e {continue;}
