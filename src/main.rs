@@ -36,7 +36,6 @@ mod utils;
 mod closures;
 mod mers;
 mod kminmer;
-mod wfa;
 
 type ThreadIdType = usize;
 pub struct Params {
@@ -204,7 +203,7 @@ fn main() {
     let file_size = metadata.len();
     let ref_threads = threads;
     let ref_queue_len = 4;
-    let queue_len = 500; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+    let queue_len = 1000; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
 
