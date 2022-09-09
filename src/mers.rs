@@ -12,7 +12,6 @@ use crate::closures::Entry;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use crate::utils::normalize_vec;
-use crate::wfa;
 
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
 pub type Mer = (u64, usize, usize, usize, bool);
@@ -623,7 +622,7 @@ pub fn output_paf(all_matches: &Vec<(Vec<Match>, String)>, paf_file: &mut File, 
         if params.a {
             let ref_seq = ref_seqs.get(&ref_id).unwrap();
             let query_seq = ref_seqs.get(&query_id).unwrap();
-            let (wfa_score, wfa_cigar) = wfa::align_wfa(&query_seq[query_s..query_e], &ref_seq[ref_s..ref_e]);
+            //let (wfa_score, wfa_cigar) = wfa::align_wfa(&query_seq[query_s..query_e], &ref_seq[ref_s..ref_e]);
         }
 
         let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", query_id, query_len, query_s, query_e, rc, ref_id, ref_len, ref_s, ref_e, score, ref_len, mapq);
