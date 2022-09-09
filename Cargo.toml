@@ -42,6 +42,7 @@ dashmap = "3.11.10"
 thread-id = "3.3.0"
 indicatif = "0.16.2"
 histo = "0.1.0"
+libwfa = "0.1"
 
 
 [profile.dev]

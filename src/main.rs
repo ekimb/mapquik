@@ -36,6 +36,7 @@ mod utils;
 mod closures;
 mod mers;
 mod kminmer;
+mod wfa;
 
 type ThreadIdType = usize;
 pub struct Params {
@@ -45,6 +46,7 @@ pub struct Params {
     use_hpc: bool,
     debug: bool,
     f: usize,
+    a: bool,
 }
 
 /// Try to get memory usage (resident set size) in bytes using the `getrusage()` function from libc.
@@ -141,6 +143,8 @@ struct Opt {
     /// Number of threads
     #[structopt(long)]
     threads: Option<usize>,
+    #[structopt(short, long)]
+    a: bool,
 }
 
 fn main() {
@@ -152,6 +156,7 @@ fn main() {
     let mut k : usize = 5;
     let mut l : usize = 31;
     let mut f : usize = 1;
+    let a = opt.a;
     let mut density : f64 = 0.01;
     let reference : bool = false;
     let mut use_hpc : bool = false;
@@ -190,18 +195,21 @@ fn main() {
         use_hpc,
         debug,
         f,
+        a,
     };
     // init some useful objects
     // get file size for progress bar
     let metadata = fs::metadata(&filename).expect("Error opening input file.");
     let ref_metadata = fs::metadata(&ref_filename).expect("Error opening reference file.");
     let file_size = metadata.len();
-    let queue_len = threads; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+    let ref_threads = threads;
+    let ref_queue_len = 4;
+    let queue_len = 500; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
-    closures::run_mers(&filename, &ref_filename, &params, threads, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
+    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
     println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);
