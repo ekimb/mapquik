@@ -4,6 +4,7 @@ use std::cmp::Ordering;
 use std::collections::HashSet;
 use array_tool::vec::{Intersect, Union};
 use crate::utils::pretty_minvec;
+use std::collections::hash_map::DefaultHasher;
 
 use nthash::NtHashIterator;
 use crate::Params;
@@ -42,6 +43,11 @@ impl Kminmer {
     }
     pub fn mers(&self) -> Vec<u64> {
         self.mers.to_vec()
+    }
+    pub fn get_hash(&self) -> u64 {
+        let mut hash = DefaultHasher::new();
+        self.mers.hash(&mut hash);
+        hash.finish()
     }
 
 }

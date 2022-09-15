@@ -2,7 +2,7 @@
 # note: pbsim (version 1) only has a 1% precision for error rate (can't simulate 0.5% error rate for example)
 
 ref=chm13.genome.fa
-reads=nearperfect-chm13.10X
+reads=nearperfect-chm13.10X.24kb
 
 pbsim \
        $ref \
@@ -11,10 +11,10 @@ pbsim \
        --accuracy-sd 0\
        --depth 10\
        --prefix $reads\
-       --length-mean 12000 #hifi
+       --length-mean 24000 #hifi
 
 #paftools.js pbsim2fq <ref.fa.fai> <pbsim1.maf> [[pbsim2.maf] ...]
-paftools.js pbsim2fq $ref.fai "$reads"_000*.maf > $reads.fa
+paftools.js pbsim2fq $ref.fai "$reads"_00*.maf > $reads.fa
 
-rm -rf  "$reads"_000*
+rm -rf  "$reads"_00*
 

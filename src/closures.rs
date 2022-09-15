@@ -15,17 +15,17 @@ use crate::kminmer::Kminmer;
 use crate::mers::{Match};
 use std::path::PathBuf;
 use super::Params;
-use crate::{get_reader, hash_id};
+use crate::get_reader;
 use indicatif::ProgressBar;
+use std::time::Instant;
+pub type Entry = (usize, usize, bool, usize);
 
-pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, threads: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
+pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
     //let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
-    let mers_index : Arc<DashMap<Vec<u64>, Vec<(String, Kminmer)>>> =  Arc::new(DashMap::new());
-    let query_mers_index : Arc<DashMap<u64, usize>> =  Arc::new(DashMap::new());
+    let mers_index : Arc<DashMap<u64, Vec<(String, Entry)>>> =  Arc::new(DashMap::new());
+    let mut ref_seqs : Arc<DashMap<String, String>> =  Arc::new(DashMap::new());
     let mut all_matches = Vec::<(Vec<Match>, String)>::new();
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
-    let mut threshold_max = 0;
-    let mut threshold_min = u64::max_value();
     let mut paf_file = match File::create(&path) {
         Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
         Ok(paf_file) => paf_file,
@@ -36,110 +36,15 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         Ok(unmap_file) => unmap_file,
     };
     let lens : DashMap<String, usize> = DashMap::new();
-
-    /*let count_lmers = |seq_id: &str, seq: &[u8], params: &Params| {
-        let (mut string_hashes, mut pos_to_seq_coord) = mers::extract_mers(seq, params);
-        for i in 0..string_hashes.len() {
-            let mut entry = query_mers_index.get_mut(&string_hashes[i]);
-            if entry.is_some() {*entry.unwrap() += 1;}
-            else {query_mers_index.insert(string_hashes[i], 1);}
-        }
-    };
-
-    let query_count_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<usize> {
-        let mut output = Vec::<Match>::new();
-        count_lmers(seq_id, seq_str, params);
-        return Some(1)
-    }; 
-    let query_count_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<usize>| {
-        let seq_str = record.seq(); 
-        let seq_id = record.id().unwrap().to_string();
-        *found = query_count_read_aux_mer(&seq_str, &seq_id);
-    
-    };
-    let query_count_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<usize>| {
-        let seq_str = record.seq(); 
-        let seq_id = record.id().unwrap().to_string();
-        *found = query_count_read_aux_mer(&seq_str, &seq_id);
-    
-    };
-    let mut count_thread_mer = |found: &mut Option<usize>| { // runs in main thread
-        None::<()>
-    };*/
     let buf = get_reader(&filename);
-    /*if params.f != 1.0 {
-        if fasta_reads {
-            let reader = seq_io::fasta::Reader::new(buf); 
-            read_process_fasta_records(reader, threads as u32, queue_len, query_count_read_fasta_mer, |record, found| {count_thread_mer(found)});
-        }
-        else {
-            let reader = seq_io::fastq::Reader::new(buf); 
-            read_process_fastq_records(reader, threads as u32, queue_len, query_count_read_fastq_mer, |record, found| {count_thread_mer(found)});
-        }
-        let mut frac_index = (params.f * query_mers_index.len() as f64) as usize;
-        let mut counts : Vec<usize> = query_mers_index.iter().map(|(ent)| *ent.value()).collect();
-        counts.sort_by(|a, b| a.cmp(&b));
-        let mut histogram = Histogram::with_buckets(200);
-        for count in counts.iter() {
-            histogram.add(*count as u64);
-        }
-        println!("{}", histogram);
-        counts.reverse();
-        if params.f >= 1.0 {
-            threshold_max = counts.iter().nth(query_mers_index.len()-1).unwrap().clone();
-
-        }
-        else {
-            threshold_max = counts.iter().nth(frac_index).unwrap().clone();
-        }
-        let mut prev_count = u64::max_value();
-        for bucket in histogram.buckets() {
-            if  bucket.count() < prev_count {
-                threshold_min = bucket.end();
-                prev_count = bucket.count();
-            }
-            else {break;}
-        }
-    }
-    println!("Removed top {}% fraction of {} l-mers (count > {}).", params.f*100.0, query_mers_index.len(), threshold_max);
-    println!("Removed likely-erroneous l-mers based on histogram (count < {}).", threshold_min);
-    */
-    let index_mers = |seq_id: &str, seq: &[u8], params: &Params, read: bool| -> (usize, Vec<Kminmer>) {
-        let (mut sk, mut pos) = mers::extract(seq, params);
-        let mut kminmers = mers::kminmers(&sk, &pos, params);
-        if !read {
-            for kminmer in kminmers.iter() {
-                if mers_index.get_mut(&kminmer.mers()).is_some() {
-                    mers_index.get_mut(&kminmer.mers()).unwrap().push((seq_id.to_string(), kminmer.clone()));
-                }
-                else {mers_index.insert(kminmer.mers().clone(),  vec![(seq_id.to_string(), kminmer.clone())]);}
-            }
-        }
+    let index_mers = |seq_id: &str, seq: &[u8], params: &Params| {
+        mers::ref_extract(seq_id, seq, params, &mers_index);
         lens.insert(seq_id.to_string(), seq.len());
-        /*else {
-            mers_index.insert(seq_id.to_string(), DashMap::new());
-            mers.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-            let mut prev_mer = mers[0];
-            let mut entry_map = mers_index.get_mut(&seq_id.to_string()).unwrap();
-            entry_map.insert(prev_mer.0, (prev_mer, 1));
-            for i in 1..mers.len() {
-                let mut curr_mer = mers[i];
-                if curr_mer.0 == prev_mer.0 {
-                    let entry = entry_map.get_mut(&curr_mer.0);
-                    entry.unwrap().1 += 1;
-                }
-                else {
-                    entry_map.insert(curr_mer.0, (curr_mer, 1));
-                }
-                prev_mer = curr_mer;
-            }  
-            lens.insert(seq_id.to_string(), seq_len);
-        }*/
-        return (seq.len(), kminmers);
     };
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
-        let (seq_len, mers) = index_mers(ref_id, ref_str, params, false);
-        println!("Indexed {} reference k-mers.", mers.len());
+        index_mers(ref_id, ref_str, params);
+        if params.a {ref_seqs.insert(ref_id.to_string(), String::from_utf8(ref_str.to_vec()).unwrap());}
+        println!("Indexed reference k-mers for {}.", ref_id);
         return Some(1)
     
     };
@@ -159,8 +64,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
     };
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<Match>, String)> {
         let mut output = Vec::<Match>::new();
-        let (seq_len, kminmers) = index_mers(seq_id, seq_str, params, true);
-        output = mers::find_hits(&seq_id, seq_len, &kminmers, &lens, &mers_index, params);
+        if params.a {ref_seqs.insert(seq_id.to_string(), String::from_utf8(seq_str.to_vec()).unwrap());}
+        output = mers::find_hits(&seq_id, seq_str.len(), &seq_str, &lens, &mers_index, params);
         return Some((output, seq_id.to_string()))
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<Match>, String)>| {
@@ -182,25 +87,33 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, thr
         }
         None::<()>
     };
-    
+    let start = Instant::now();
     let buf = get_reader(&ref_filename);
     if ref_fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
-        read_process_fasta_records(reader, threads as u32, queue_len, ref_process_read_fasta_mer, |record, found| {ref_main_thread_mer(found)});
+        read_process_fasta_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fasta_mer, |record, found| {ref_main_thread_mer(found)});
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
-        read_process_fastq_records(reader, threads as u32, queue_len, ref_process_read_fastq_mer, |record, found| {ref_main_thread_mer(found)});
+        read_process_fastq_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fastq_mer, |record, found| {ref_main_thread_mer(found)});
     }
+    let duration = start.elapsed();
+    println!("Indexed references in {:?}.", duration);
+    let query_start = Instant::now();
     let buf = get_reader(&filename);
     if fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
         read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params);
+        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params, &ref_seqs);
+        let query_duration = query_start.elapsed();
+        println!("Mapped query sequences in {:?}.", query_duration);
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
         read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params);
+        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params, &ref_seqs);
+        let query_duration = query_start.elapsed();
+        println!("Mapped query sequences in {:?}.", query_duration);
     }
+   
 }
