@@ -1,5 +1,5 @@
 // hifimap v0.1.0
-// Copyright 2020-2021 Baris Ekim, , Kristoffer Sahlin, Rayan Chikhi.
+// Copyright 2020-2021 Baris Ekim, Rayan Chikhi.
 // Licensed under the MIT license (http://opensource.org/licenses/MIT).
 // This file may not be copied, modified, or distributed except according to those terms.
 
@@ -32,11 +32,19 @@ use std::io::Result;
 use core::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use crate::kminmer::Kminmer;
+use crate::index::{Entry, Index};
+use crate::mers::{Match, AlignCand};
+use crate::hit::Hit;
+use crate::chain::{Chain, kminmer_mapq};
 mod utils;
 mod closures;
 mod mers;
 mod kminmer;
 mod nthash_hpc;
+mod align;
+mod index;
+mod hit;
+mod chain;
 
 type ThreadIdType = usize;
 pub struct Params {
@@ -144,7 +152,7 @@ struct Opt {
     #[structopt(long)]
     threads: Option<usize>,
     #[structopt(short, long)]
-    a: bool,
+    align: bool,
 }
 
 fn main() {
@@ -156,7 +164,7 @@ fn main() {
     let mut k : usize = 5;
     let mut l : usize = 31;
     let mut f : usize = 1;
-    let a = opt.a;
+    let a = opt.align;
     let mut density : f64 = 0.01;
     let reference : bool = false;
     let mut use_hpc : bool = false;
@@ -203,13 +211,17 @@ fn main() {
     let ref_metadata = fs::metadata(&ref_filename).expect("Error opening reference file.");
     let file_size = metadata.len();
     let ref_threads = threads;
-    let ref_queue_len = 4;
-    let queue_len = 1000; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+    let ref_queue_len = threads;
+    let queue_len = threads; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
     closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
+    //if params.a {
+       // println!("Running WFA...");
+       // wfa::run_wfa(&filename, &ref_filename, &matches, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
+   // }
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
     println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);

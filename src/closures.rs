@@ -1,3 +1,6 @@
+// closures.rs
+// Functions for FASTA parsing and invoking all necessary functions for mapping and alignment.
+
 use std::io::{self};
 use std::error::Error;
 use std::io::{BufRead, BufReader};
@@ -12,47 +15,63 @@ use dashmap::DashMap;
 use thread_id;
 use super::mers;
 use crate::kminmer::Kminmer;
-use crate::mers::{Match};
+use crate::mers::{Match, AlignCand, Offset};
 use std::path::PathBuf;
 use super::Params;
 use crate::get_reader;
 use indicatif::ProgressBar;
 use std::time::Instant;
-pub type Entry = (usize, usize, bool, usize);
+use dashmap::DashSet;
+use crate::index::{Entry, Index};
+use crate::align::{get_slices, align_slices};
+use std::borrow::Cow;
 
+// Main function for all FASTA parsing + mapping / alignment functions.
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
-    //let mers_index : Arc<DashMap<String, DashMap<u64, (Mer, usize)>>> =  Arc::new(DashMap::new());
-    let mers_index : Arc<DashMap<u64, Vec<(String, Entry)>>> =  Arc::new(DashMap::new());
-    let mut ref_seqs : Arc<DashMap<String, String>> =  Arc::new(DashMap::new());
-    let mut all_matches = Vec::<(Vec<Match>, String)>::new();
+
+    let mut all_matches : Arc<DashSet<(String, Option<Match>)>> = Arc::new(DashSet::new()); // Index of each Match object obtained per query
+    let mers_index = Index::new(); // Index of reference k-min-mer entries
+    let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
+    let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
+    let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
+    let lens : DashMap<String, usize> = DashMap::new(); // Sequence lengths per reference
+
+
+    // PAF file generation
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
     let mut paf_file = match File::create(&path) {
         Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
         Ok(paf_file) => paf_file,
     };
+
+    // Unmapped read file generation
     let unmap_path = format!("{}{}", output_prefix.to_str().unwrap(), ".unmapped.out");
     let mut unmap_file = match File::create(&unmap_path) {
         Err(why) => panic!("Couldn't create {}: {}", unmap_path, why.description()),
         Ok(unmap_file) => unmap_file,
     };
-    let lens : DashMap<String, usize> = DashMap::new();
-    let buf = get_reader(&filename);
-    let index_mers = |seq_id: &str, seq: &[u8], params: &Params| -> usize{
+
+    // Closure for indexing reference k-min-mers
+    let index_mers = |seq_id: &str, seq: &[u8], params: &Params| -> usize {
         let nb_mers = mers::ref_extract(seq_id, seq, params, &mers_index);
         lens.insert(seq_id.to_string(), seq.len());
         nb_mers
     };
+
+    // Closures for obtaining k-min-mers from references
+
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         let nb_mers = index_mers(ref_id, ref_str, params);
-        if params.a {ref_seqs.insert(ref_id.to_string(), String::from_utf8(ref_str.to_vec()).unwrap());}
-        println!("Indexed reference {} : {} k-min-mers.", ref_id, nb_mers);
+        if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
+        println!("Indexed reference {}: {} k-min-mers.", ref_id, nb_mers);
         return Some(1)
-    
     };
+
     let ref_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq(); 
+        let ref_str = record.seq().to_vec(); 
         let ref_id = record.id().unwrap().to_string();
         *found = ref_process_read_aux_mer(&ref_str, &ref_id);
+
     };
     let ref_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
         let ref_str = record.seq(); 
@@ -60,34 +79,87 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         *found = ref_process_read_aux_mer(&ref_str, &ref_id);
     };
     let ref_main_thread_mer = |found: &mut Option<u64>| { // runs in main thread
-        let seq_id_hash = found.as_ref().unwrap();
         None::<()>
     };
-    let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<(Vec<Match>, String)> {
-        let mut output = Vec::<Match>::new();
-        if params.a {ref_seqs.insert(seq_id.to_string(), String::from_utf8(seq_str.to_vec()).unwrap());}
-        output = mers::find_hits(&seq_id, seq_str.len(), &seq_str, &lens, &mers_index, params);
-        return Some((output, seq_id.to_string()))
+
+    //
+
+    // Closures for mapping queries to references
+
+    let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<(Option<Match>, String)> {
+        if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
+        let match_opt = mers::find_hits(&seq_id, seq_str.len(), &seq_str, &lens, &mers_index, params, &aln_coords);
+        return Some((match_opt, seq_id.to_string()))
     };
-    let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Vec<Match>, String)>| {
+    let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Option<Match>, String)>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
     
     };
-    
-    let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<(Vec<Match>, String)>| {
+    let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<(Option<Match>, String)>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
     };
-    let mut main_thread_mer = |found: &mut Option<(Vec<Match>, String)>| { // runs in main thread
+    let mut main_thread_mer = |found: &mut Option<(Option<Match>, String)>| { // runs in main thread
         if found.is_some() {
-            let (matches, seq_id) = found.as_ref().unwrap();
-            all_matches.push((matches.to_vec(), seq_id.to_string()));
+            let (match_opt, seq_id) = found.as_ref().unwrap();
+            all_matches.insert((seq_id.to_string(), match_opt.clone()));
         }
         None::<()>
     };
+
+    //
+
+    // Closures for base-level alignment (obtaining reference sequence slices)
+
+    let ref_process_read_aux_aln = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
+        get_slices(ref_id, ref_str, &aln_coords, &aln_coords_q, &aln_seqs_cow);
+        return Some(1)
+    };
+    let ref_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
+        let ref_str = record.seq(); 
+        let ref_id = record.id().unwrap().to_string();
+        *found = ref_process_read_aux_aln(&ref_str, &ref_id);
+    };
+    let ref_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
+        let ref_str = record.seq(); 
+        let ref_id = record.id().unwrap().to_string();
+        *found = ref_process_read_aux_aln(&ref_str, &ref_id);
+    };
+    let ref_main_thread_aln = |found: &mut Option<u64>| { // runs in main thread
+        None::<()>
+    };
+
+    //
+
+    //  Closures for base-level alignment (obtaining query sequence slices and alignment)
+    
+    let query_process_read_aux_aln = |seq_str: &[u8], seq_id: &str| -> Option<u64> {
+        align_slices(seq_id, seq_str, &aln_coords_q, &aln_seqs_cow);
+        return Some(1)
+    };
+    let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
+        let seq_str = record.seq(); 
+        let seq_id = record.id().unwrap().to_string();
+        *found = query_process_read_aux_aln(&seq_str, &seq_id);
+        if params.a {eprintln!("{}", seq_id);}
+    
+    };
+    let query_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
+        let seq_str = record.seq(); 
+        let seq_id = record.id().unwrap().to_string();
+        *found = query_process_read_aux_aln(&seq_str, &seq_id);
+    };
+    let mut main_thread_aln = |found: &mut Option<u64>| { // runs in main thread
+        None::<()>
+    };
+
+    //
+
+    // Start processing references
+
     let start = Instant::now();
     let buf = get_reader(&ref_filename);
     if ref_fasta_reads {
@@ -100,21 +172,60 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     }
     let duration = start.elapsed();
     println!("Indexed references in {:?}.", duration);
+
+    // Done, start processing queries
+
     let query_start = Instant::now();
     let buf = get_reader(&filename);
     if fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
         read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params, &ref_seqs);
+        mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
         let query_duration = query_start.elapsed();
         println!("Mapped query sequences in {:?}.", query_duration);
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
         read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&mut all_matches, &mut paf_file, &mut unmap_file, params, &ref_seqs);
+        mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
         let query_duration = query_start.elapsed();
         println!("Mapped query sequences in {:?}.", query_duration);
     }
-   
+
+    // Done, start alignment (optional)
+
+    if params.a {
+        let start = Instant::now();
+        let buf_aln = get_reader(&ref_filename);
+
+        // Obtain reference sequences
+
+        if ref_fasta_reads {
+            let reader = seq_io::fasta::Reader::new(buf_aln);
+            read_process_fasta_records(reader, ref_threads as u32, 4, ref_process_read_fasta_aln, |record, found| {ref_main_thread_aln(found)});
+        }
+        else {
+            let reader = seq_io::fastq::Reader::new(buf_aln);
+            read_process_fastq_records(reader, ref_threads as u32, 4, ref_process_read_fastq_aln, |record, found| {ref_main_thread_aln(found)});
+        }
+        let duration = start.elapsed();
+        println!("Obtained references for alignment in {:?}.", duration);
+
+        // Done, obtain query sequences and align
+
+        let query_start = Instant::now();
+        let buf_aln = get_reader(&filename);
+        if fasta_reads {
+            let reader = seq_io::fasta::Reader::new(buf_aln);
+            read_process_fasta_records(reader, threads as u32, threads, query_process_read_fasta_aln, |record, found| {main_thread_aln(found)});
+            let query_duration = query_start.elapsed();
+            println!("Aligned query sequences in {:?}.", query_duration);
+        }
+        else {
+            let reader = seq_io::fastq::Reader::new(buf_aln);
+            read_process_fastq_records(reader, threads as u32, threads, query_process_read_fastq_aln, |record, found| {main_thread_aln(found)});
+            let query_duration = query_start.elapsed();
+            println!("Aligned query sequences in {:?}.", query_duration);
+        }
+    }
 }

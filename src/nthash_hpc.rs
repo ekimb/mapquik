@@ -1,3 +1,4 @@
+// nthash_hpc.rs
 // homopolymer compression version of ntHash1,
 // which simulatenously HPC and record original offsets of sequences
 //
