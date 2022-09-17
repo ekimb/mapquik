@@ -13,8 +13,10 @@ echo "------------- generating FASTA from unmapped reads -------------"
 
 seqtk subseq nearperfect-chm13.10X.24kb.fa hifimap-$K-$L-$D.unmapped.out > hifimap-$K-$L-$D.unmapped.fq
 
-echo "------------- minimap2 -------------"
+echo "------------- winnowmap2 -------------"
 
-/usr/bin/time ./minimap2-2.24 -x -H map-hifi -t 11 chm13.genome.fa hifimap-$K-$L-$D.unmapped.fq > minimap2-$K-$L-$D.unmapped.paf
-paftools.js mapeval minimap2-$K-$L-$D.unmapped.paf
+meryl count k=15 threads=11 output chm13.db chm13.genome.fa
+meryl print greater-than distinct=0.9998 chm13.db > chm13.repetitive.k15.txt
+/usr/bin/time winnowmap -W chm13.repetitive.k15.txt -t 11 -x map-pb  chm13.genome.fa hifimap-$K-$L-$D.unmapped.fq > winnowmap2-$K-$L-$D.unmapped.paf
+paftools.js mapeval winnowmap2-$K-$L-$D.unmapped.paf
 
