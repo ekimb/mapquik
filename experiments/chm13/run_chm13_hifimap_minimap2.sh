@@ -15,6 +15,6 @@ seqtk subseq nearperfect-chm13.10X.24kb.fa hifimap-$K-$L-$D.unmapped.out > hifim
 
 echo "------------- minimap2 -------------"
 
-/usr/bin/time ./minimap2-2.24 -x -H map-hifi -t 11 chm13.genome.fa hifimap-$K-$L-$D.unmapped.fq > minimap2-$K-$L-$D.unmapped.paf
+/usr/bin/time ./minimap2-2.24 -x map-hifi -t 11 chm13.genome.fa hifimap-$K-$L-$D.unmapped.fq > minimap2-$K-$L-$D.unmapped.paf
 paftools.js mapeval minimap2-$K-$L-$D.unmapped.paf
 
