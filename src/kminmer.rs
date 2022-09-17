@@ -6,7 +6,6 @@ use array_tool::vec::{Intersect, Union};
 use crate::utils::pretty_minvec;
 use std::collections::hash_map::DefaultHasher;
 
-use nthash::NtHashIterator;
 use crate::Params;
 #[derive(Clone, Debug)]
 pub struct Kminmer {

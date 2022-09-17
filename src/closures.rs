@@ -37,14 +37,15 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
     let lens : DashMap<String, usize> = DashMap::new();
     let buf = get_reader(&filename);
-    let index_mers = |seq_id: &str, seq: &[u8], params: &Params| {
-        mers::ref_extract(seq_id, seq, params, &mers_index);
+    let index_mers = |seq_id: &str, seq: &[u8], params: &Params| -> usize{
+        let nb_mers = mers::ref_extract(seq_id, seq, params, &mers_index);
         lens.insert(seq_id.to_string(), seq.len());
+        nb_mers
     };
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
-        index_mers(ref_id, ref_str, params);
+        let nb_mers = index_mers(ref_id, ref_str, params);
         if params.a {ref_seqs.insert(ref_id.to_string(), String::from_utf8(ref_str.to_vec()).unwrap());}
-        println!("Indexed reference k-mers for {}.", ref_id);
+        println!("Indexed reference {} : {} k-min-mers.", ref_id, nb_mers);
         return Some(1)
     
     };

@@ -5,13 +5,13 @@ use std::io::Write;
 use crate::kminmer::Kminmer;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use nthash::NtHashIterator;
 use std::cmp;
 use super::Params;
 use crate::closures::Entry;
 use std::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use crate::utils::normalize_vec;
+use crate::nthash_hpc::NtHashHPCIterator;
 
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
 pub type Mer = (u64, usize, usize, usize, bool);
@@ -53,7 +53,7 @@ pub fn encode_rle(inp_seq: &str) -> (String, Vec<usize>) {
     (hpc_seq, pos_vec)
 }
 
-pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index: &DashMap<u64, Vec<(String, Entry)>>) {
+pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index: &DashMap<u64, Vec<(String, Entry)>>) -> usize{
     let density = params.density;
     let l = params.l;
     let k = params.k;
@@ -62,24 +62,15 @@ pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index
     let hash_bound = ((density as f64) * (u64::max_value() as f64)) as u64;
     let mut tup = (String::new(), Vec::<usize>::new());
     let inp_seq = String::from_utf8(inp_seq_raw.to_vec()).unwrap();
-    let mut seq;
-    if !params.use_hpc {
-        tup = encode_rle(&inp_seq); //get HPC sequence and positions in the raw nonHPCd sequence
-        seq = tup.0; //assign new HPCd sequence as input
+    if inp_seq.len() < l {
+        return 0;
     }
-    else {
-        seq = inp_seq;  //already HPCd before so get the raw sequence
-    }
-    if seq.len() < l {
-        return;
-    }
-    let iter = NtHashIterator::new(seq.as_bytes(), l).unwrap().enumerate().filter(|(_i, x)| *x <= hash_bound);
+    let iter = NtHashHPCIterator::new(inp_seq.as_bytes(), l, hash_bound).unwrap();
     let mut curr_sk = Vec::<u64>::new();
     let mut curr_pos = Vec::<usize>::new();
     let mut count = 0;
-    for (i, hash) in iter {
-        if !params.use_hpc {curr_pos.push(tup.1[i]);} //if not HPCd need raw sequence positions
-        else {curr_pos.push(i);} //already HPCd so positions are the same
+    for (j, hash) in iter {
+        curr_pos.push(j); // raw sequence position
         curr_sk.push(hash);
         if curr_sk.len() == k {
             add_kminmer(seq_id, &curr_sk, &curr_pos, count, params, mers_index);
@@ -90,6 +81,7 @@ pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index
             count += 1;
         }
     }
+    count
 }
 
 pub fn add_kminmer(seq_id: &str, sk: &Vec<u64>, pos: &Vec<usize>, offset: usize, params: &Params, mers_index: &DashMap<u64, Vec<(String, Entry)>>) {
@@ -104,6 +96,7 @@ pub fn add_kminmer(seq_id: &str, sk: &Vec<u64>, pos: &Vec<usize>, offset: usize,
     else {mers_index.insert(kmin_hash, vec![(seq_id.to_string(), (pos[0], pos[k - 1], is_rc, offset))]);}
 }
 
+// TO DELETE (Baris, please delete this code once it's clear it's obsolete)
 /*pub fn extract(seq_id: &str, inp_seq_raw: &[u8], mers_index: &DashMap<u64, Vec<(String, Entry)>>, params: &Params) -> HashMap<String, Vec<Hit>> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let density = params.density;
@@ -185,26 +178,15 @@ pub fn extract(seq_id: &str, inp_seq_raw: &[u8], mers_index: &DashMap<u64, Vec<(
     let hash_bound = ((density as f64) * (u64::max_value() as f64)) as u64;
     let mut tup = (String::new(), Vec::<usize>::new());
     let inp_seq = String::from_utf8(inp_seq_raw.to_vec()).unwrap();
-    let mut seq;
-    if !params.use_hpc {
-        tup = encode_rle(&inp_seq); //get HPC sequence and positions in the raw nonHPCd sequence
-        seq = tup.0; //assign new HPCd sequence as input
-    }
-    else {
-        seq = inp_seq;  //already HPCd before so get the raw sequence
-    }
-    if seq.len() < l {
+    if inp_seq.len() < l {
         return kminmers;
     }
-    let iter = NtHashIterator::new(seq.as_bytes(), l).unwrap().enumerate().filter(|(_i, x)| *x <= hash_bound);
+    let iter = NtHashHPCIterator::new(inp_seq.as_bytes(), l, hash_bound).unwrap();
     let mut curr_sk = Vec::<u64>::new();
     let mut curr_pos = Vec::<usize>::new();
     let mut count = 0;
-    let mut chain_len = 0;
-    let mut prev_ref_offset = 0;
-    for (i, hash) in iter {
-        if !params.use_hpc {curr_pos.push(tup.1[i]);} //if not HPCd need raw sequence positions
-        else {curr_pos.push(i);} //already HPCd so positions are the same
+    for (j, hash) in iter {
+        curr_pos.push(j); // raw sequence position
         curr_sk.push(hash);
         if curr_sk.len() == k {
             let mut q = Kminmer::new(&curr_sk, curr_pos[0], curr_pos[k - 1], count);
@@ -219,6 +201,7 @@ pub fn extract(seq_id: &str, inp_seq_raw: &[u8], mers_index: &DashMap<u64, Vec<(
     kminmers
 }
 
+// TO DELETE
 pub fn initiate_hit(h: &mut Hit, q: &Kminmer, ref_id: &String, r: &Entry, params: &Params) {
     let (r_start, r_end, r_rev, r_offset) = r;
     h.ref_id = ref_id.to_string();
@@ -235,6 +218,7 @@ pub fn initiate_hit(h: &mut Hit, q: &Kminmer, ref_id: &String, r: &Entry, params
     h.ref_offset = *r_offset;
 }
 
+// TO DELETE
 pub fn update_hit(h: &mut Hit, q: &Kminmer, r: &Entry, params: &Params) {
     let (r_start, r_end, r_rev, r_offset) = r;
     let new_score_add = cmp::min(cmp::min(q.end - h.query_e, r_end - h.ref_e), params.l);
@@ -247,6 +231,7 @@ pub fn update_hit(h: &mut Hit, q: &Kminmer, r: &Entry, params: &Params) {
     h.ref_span = r_end - h.ref_s + 1;
 }
 
+// TO DELETE
 pub fn check_hit(q: &Kminmer, h: &Hit, ref_id: &str, r: &Entry, prev_ref_offset: usize) -> bool {
     let (r_start, r_end, r_rev, r_offset) = r;
     (ref_id == &h.ref_id) && ((q.rev != *r_rev) == h.is_rc) && ((h.is_rc && (prev_ref_offset as i32 - *r_offset as i32) == 1) || (!h.is_rc && (prev_ref_offset as i32 - *r_offset as i32) == -1))
@@ -289,8 +274,8 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
                         h.ref_e = *mer_end;
                     }
                     h.query_e = q.end;
-                    h.query_span = q.end - h.query_s + 1;
-                    h.ref_span = mer_end - h.ref_s + 1;
+                    h.query_span = (q.end as i32 - h.query_s as i32).abs() as usize + 1;
+                    h.ref_span = (*mer_end as i32 - h.ref_s as i32).abs() as usize + 1;
                     h.hit_count += 1;
                     let new_score = match_score_extend(q, &query_mers[index], *mer_end, *prev_mer_end, h.match_score, params);
                     h.match_score += new_score;
@@ -305,10 +290,10 @@ pub fn extend_hit(index: usize, h: &mut Hit, query_mers: &Vec<Kminmer>, mers_ind
 }
 
 pub fn match_score(q: &Kminmer, r_end: usize, r_start: usize, params: &Params) -> usize {
-    cmp::min(cmp::min((q.end - q.start), (r_end - r_start)), (params.k * params.l))
+    cmp::min(cmp::min((q.end as i32 - q.start as i32).abs() as usize, (r_end as i32 - r_start as i32).abs() as usize), (params.k * params.l))
 }
 pub fn match_score_extend(curr_q: &Kminmer, prev_q: &Kminmer, curr_r_end: usize, prev_r_end: usize, prev_score: usize, params: &Params) -> usize {
-    cmp::min(cmp::min(curr_q.end - prev_q.end, curr_r_end - prev_r_end), params.l)
+    cmp::min(cmp::min((curr_q.end as i32 - prev_q.end as i32).abs() as i32, (curr_r_end as i32 - prev_r_end as i32).abs() as i32), params.l as i32) as usize
 }
 
 pub fn chain_hits(query_id: &str, query_mers: &Vec<Kminmer>, mers_index: &DashMap<u64, Vec<(String, Entry)>>, params: &Params) -> HashMap<String, Vec<Hit>> {
@@ -331,7 +316,9 @@ pub fn chain_hits(query_id: &str, query_mers: &Vec<Kminmer>, mers_index: &DashMa
                 let (mer_start, mer_end, mer_rev, mer_offset) = mer;
                 let mut match_score = match_score(q, *mer_end, *mer_start, params);
                 //println!("QUERY ID: {}\tstart {}\tend {}\toffset {}\nREF ID: {}\tstart {}\tend {}\toffset {}\nSCORE: {}", query_id.to_string(), q.start, q.end, q.offset, ref_id.to_string(), mer.start, mer.end, mer.offset, match_score);
-                let mut h = Hit {query_id: query_id.to_string(), ref_id: ref_id.to_string(), query_s: q.start, query_e: q.end, ref_s: *mer_start, ref_e: *mer_end, hit_count: 1, match_score: match_score, is_rc: (q.rev != *mer_rev), query_span: q.end - q.start + 1, ref_span: *mer_start - *mer_end + 1, query_offset: q.offset, ref_offset: *mer_offset};
+                let ref_span = (*mer_start as i32 - *mer_end as i32).abs() as usize + 1; 
+                let query_span = (q.end as i32 - q.start as i32).abs() as usize + 1;
+                let mut h = Hit {query_id: query_id.to_string(), ref_id: ref_id.to_string(), query_s: q.start, query_e: q.end, ref_s: *mer_start, ref_e: *mer_end, hit_count: 1, match_score: match_score, is_rc: (q.rev != *mer_rev), query_span: query_span, ref_span: ref_span, query_offset: q.offset, ref_offset: *mer_offset};
                 let mut prev_offset = *mer_offset;
                 count = extend_hit(i, &mut h, query_mers, mers_index, mer, params);
                 hits_per_ref.entry(ref_id.to_string()).or_insert(vec![]).push(h.clone());

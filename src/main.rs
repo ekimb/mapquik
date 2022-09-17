@@ -36,13 +36,14 @@ mod utils;
 mod closures;
 mod mers;
 mod kminmer;
+mod nthash_hpc;
 
 type ThreadIdType = usize;
 pub struct Params {
     k: usize,
     l: usize,
     density: f64,
-    use_hpc: bool,
+    use_hpc: bool, // Rayan to Baris: do we ever map in HPC anymore? let's delete that parameter
     debug: bool,
     f: usize,
     a: bool,
