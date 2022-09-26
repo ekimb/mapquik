@@ -7,9 +7,9 @@ reads=nearperfect-ecoli.10X.100k
 ref=ecoli.genome.fa
 reads=nearperfect-ecoli.10X
 
-/pasteur/sonic/homes/rchikhi/tools/PBSIM-PacBio-Simulator/src/pbsim \
+pbsim \
        $ref \
-       --model_qc  /pasteur/sonic/homes/rchikhi/tools/PBSIM-PacBio-Simulator/data/model_qc_clr \
+       --model_qc  ~/model_qc_clr \
        --accuracy-mean 0.99\
        --accuracy-sd 0\
        --depth 10\

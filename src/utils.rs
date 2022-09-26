@@ -1,3 +1,4 @@
+// utils.rs
 // Various helper functions used throughout.
 
 pub fn revcomp(dna: &str) -> String {
@@ -33,10 +34,15 @@ pub fn pretty_minvec(seq: &Vec<u64>)  -> String {
 }
 
 /// for sequences that aren't kminmers (shorter or longer)
-pub fn normalize_vec(seq: &Vec<u64>) -> Vec<u64> {
+pub fn normalize_vec(seq: &Vec<u64>) -> (bool, Vec<u64>) {
     let mut seq_rev = seq.clone();
     seq_rev.reverse();
-    std::cmp::min(seq_rev, seq.clone())
+    let mut tup = match &seq_rev < seq {
+        true => (true, seq_rev),
+        false => (false, seq.to_vec()),
+    };
+    tup
+
 }
 
 pub fn median(numbers: &Vec<u32>) -> u32 {

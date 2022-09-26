@@ -4,6 +4,7 @@
 *.sequences
 *.gfa
 *.fa
+*.fa.fai
 *.uhs
 *.lcp
 *.lcp.gz
@@ -28,3 +29,12 @@ compute_err.py
 example/model_qc_clr
 .gitignore
 example/nearperfect-ecoli*
+*.log
+*.out
+pos_*.rs
+multi_*.rs
+experiments/chm13/minimap2-2.24*
+experiments/chm13/blend
+utils/
+example-ava/
+example-map/
