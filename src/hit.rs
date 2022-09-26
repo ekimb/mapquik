@@ -73,8 +73,8 @@ impl Hit {
     // Check if this Hit can be extended by another query Kminmer matching a new reference Entry. 
     pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry, q_len: usize) -> bool {
         ((r.id == self.r_id) && ((q.rev != r.rc) == self.rc) && 
-        (self.rc && (self.r_start > r.start) && (self.r_start - r.start < q_len - q.end)) || 
-        (!self.rc && (self.r_end < r.end) && (r.end - self.r_end < q_len - q.end)))
+        (self.rc && (self.r_start > r.start) && (self.r_start - r.start < q_len / 2)) || 
+        (!self.rc && (self.r_end < r.end) && (r.end - self.r_end < q_len / 2)))
     }
 
     // Extend this Hit if it can be extended by the next Kminmer match.
@@ -82,7 +82,7 @@ impl Hit {
         if i == query_mers.len() - 1 {return;}
         let q = &query_mers[i + 1];
         let (b, r) = index.get_entry(&q);
-        println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
+        //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
         if b && self.check(q, &r, p, q_len) {
             self.update(q, &r, params);
             self.extend(i + 1, query_mers, index, &r, params, q_len);
