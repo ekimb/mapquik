@@ -35,3 +35,6 @@ pos_*.rs
 multi_*.rs
 experiments/chm13/minimap2-2.24*
 experiments/chm13/blend
+utils/
+example-ava/
+example-map/
