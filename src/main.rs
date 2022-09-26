@@ -31,15 +31,13 @@ use std::cell::UnsafeCell;
 use std::io::Result;
 use core::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
-use crate::kminmer::Kminmer;
 use crate::index::{Entry, Index};
 use crate::mers::{Match, AlignCand};
 use crate::hit::Hit;
 use crate::chain::{Chain, kminmer_mapq};
-mod utils;
+use rust_seq2kminmers::Kminmer;
 mod closures;
 mod mers;
-mod kminmer;
 mod nthash_hpc;
 mod align;
 mod index;
@@ -140,14 +138,6 @@ struct Opt {
     /// doesn't filter any kminmers.
     #[structopt(parse(from_os_str), long)]
     reference: Option<PathBuf>,
-    /// Homopolymer-compressed (HPC) input
-    ///
-    /// Both raw and homopolymer-compressed (HPC) reads can
-    /// be provided as input. If the reads are not compressed,
-    /// rust-mdbg manually performs HPC, but uses the raw sequences
-    /// for transformation into base-space.
-    #[structopt(long)]
-    hpc: bool,
     /// Number of threads
     #[structopt(long)]
     threads: Option<usize>,
@@ -167,7 +157,7 @@ fn main() {
     let a = opt.align;
     let mut density : f64 = 0.01;
     let reference : bool = false;
-    let mut use_hpc : bool = false;
+    let mut use_hpc : bool = true; // hardcoded to true
     let mut threads : usize = 8;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
@@ -192,7 +182,6 @@ fn main() {
     if opt.density.is_some() {density = opt.density.unwrap()} else {println!("Warning: Using default density value ({}%).", density * 100.0);}
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
     if opt.f.is_some() {f = opt.f.unwrap()} else {println!("Warning: Using default max count ({}).", f);}
-    if opt.hpc {use_hpc = true;}
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let debug = opt.debug;

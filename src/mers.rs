@@ -1,13 +1,14 @@
 // mers.rs
 // Contains the "Match", "Offset", and "AlignCand" types, along with driver functions for obtaining reference and query k-min-mers, Hits, Chains, and final coordinates.
 
-use crate::{Chain, Entry, Hit, File, Kminmer, Index, Params, kminmer_mapq, utils::normalize_vec, nthash_hpc::NtHashHPCIterator};
+use crate::{Chain, Entry, Hit, File, Kminmer, Index, Params, kminmer_mapq};
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use dashmap::{DashMap, DashSet};
+use rust_seq2kminmers::{KminmersIterator};
 
 // A final Match: (Query ID, ref ID, query length, reference length, query start position, query end position, reference start position, reference end position, score, strand direction, MAPQ score)
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
@@ -43,84 +44,35 @@ pub fn encode_rle(inp_seq: &str) -> (String, Vec<usize>) {
 
 // Extract k-min-mers from reference. We don't store k-min-mer objects or hashes in a Vec, but rather immediately insert into the Index.
 pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index: &Index) -> usize {
-    let density = params.density;
     let l = params.l;
     let k = params.k;
-    let mut read_minimizers_pos = Vec::<usize>::new();
-    let mut read_transformed = Vec::<u64>::new();
-    let hash_bound = ((density as f64) * (u64::max_value() as f64)) as u64;
-    let mut tup = (String::new(), Vec::<usize>::new());
-    let inp_seq = String::from_utf8(inp_seq_raw.to_vec()).unwrap();
-    if inp_seq.len() < l {
+    if inp_seq_raw.len() < l+k-1 {
         return 0;
     }
-    let iter = NtHashHPCIterator::new(inp_seq.as_bytes(), l, hash_bound).unwrap();
-    let mut curr_sk = Vec::<u64>::new();
-    let mut curr_pos = Vec::<usize>::new();
+    let density = params.density;
+    let iter = KminmersIterator::new(inp_seq_raw, l, k, density, params.use_hpc).unwrap();
     let mut count = 0;
-    for (j, hash) in iter {
-        curr_pos.push(j);
-        curr_sk.push(hash);
-        if curr_sk.len() == k {
-            add_kminmer(seq_id, &curr_sk, &curr_pos, count, params, mers_index);
-            let mut new_sk = curr_sk[1..k].to_vec();
-            curr_sk = new_sk;
-            let mut new_pos = curr_pos[1..k].to_vec();
-            curr_pos = new_pos;
-            count += 1;
-        }
+    for kminmer in iter {
+        // Add a reference k-min-mer to the Index.
+        mers_index.add(kminmer.get_hash(), seq_id, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
+        count += 1;
     }
     count
 }
 
-// Add a reference k-min-mer to the Index.
-pub fn add_kminmer(seq_id: &str, sk: &Vec<u64>, pos: &Vec<usize>, offset: usize, params: &Params, mers_index: &Index) {
-    let k = params.k;
-    let (rc, norm) = normalize_vec(&sk);
-    let mut hash = DefaultHasher::new();
-    norm.hash(&mut hash);
-    let mut kmin_hash = hash.finish();
-    mers_index.add(kmin_hash, seq_id, pos[0], pos[k - 1] + params.l - 1, offset, rc);
-}
-
-
 // Extract k-min-mers from the query. We need to store Kminmer objects for the query in order to compute Hits.
 pub fn extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params) -> Vec<Kminmer> {
-    let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
-    let density = params.density;
     let l = params.l;
     let k = params.k;
-    let mut kminmers = Vec::<Kminmer>::new();
-    let hash_bound = ((density as f64) * (u64::max_value() as f64)) as u64;
-    let mut tup = (String::new(), Vec::<usize>::new());
-    let inp_seq = String::from_utf8(inp_seq_raw.to_vec()).unwrap();
-    if inp_seq.len() < l {
-        return kminmers;
+    if inp_seq_raw.len() < l+k-1 {
+        return Vec::<Kminmer>::new();
     }
-    let iter = NtHashHPCIterator::new(inp_seq.as_bytes(), l, hash_bound).unwrap();
-    let mut curr_sk = Vec::<u64>::new();
-    let mut curr_pos = Vec::<usize>::new();
-    let mut count = 0;
-    let mut chain_len = 0;
-    let mut prev_r_offset = 0;
-    for (j, hash) in iter {
-        curr_pos.push(j);
-        curr_sk.push(hash);
-        if curr_sk.len() == k {
-            let mut q = Kminmer::new(&curr_sk, curr_pos[0], curr_pos[k - 1] + params.l - 1, count);
-            kminmers.push(q);
-            let mut new_sk = curr_sk[1..k].to_vec();
-            curr_sk = new_sk;
-            let mut new_pos = curr_pos[1..k].to_vec();
-            curr_pos = new_pos;
-            count += 1;
-        }
-    }
-    kminmers
+    let density = params.density;
+    KminmersIterator::new(inp_seq_raw, l, k, density, params.use_hpc).unwrap().collect::<Vec<Kminmer>>()
 }
 
 // Generates raw Vecs of Hits by matching query k-min-mers to Entries from the Index.
-pub fn chain_hits(query_id: &str, query_mers: &Vec<Kminmer>, index: &Index, params: &Params) -> HashMap<String, Vec<Hit>> {
+pub fn chain_hits(query_id: &str, query_mers: &Vec<Kminmer>, index: &Index, params: &Params, q_len: usize) -> HashMap<String, Vec<Hit>> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let l = params.l;
     let k = params.k;
@@ -130,9 +82,9 @@ pub fn chain_hits(query_id: &str, query_mers: &Vec<Kminmer>, index: &Index, para
         let (b, r) = index.get_entry(q);
         if b {
             let mut h = Hit::new(query_id, q, &r, params);
-            h.extend(i, query_mers, index, &r, params);
+            h.extend(i, query_mers, index, &r, params, q_len);
             hits_per_ref.entry(r.id.to_string()).or_insert(Vec::new()).push(h.clone());
-            i += (h.count - params.k) + 1;
+            i += h.count;
         }
         else {i += 1};
     }
@@ -143,7 +95,7 @@ pub fn chain_hits(query_id: &str, query_mers: &Vec<Kminmer>, index: &Index, para
 // Extract raw Vecs of Hits, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
 pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &Index, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<Match> {   
     let kminmers = extract(q_id, q_str, params);
-    let mut hits_per_ref = chain_hits(q_id, &kminmers, mers_index, params);
+    let mut hits_per_ref = chain_hits(q_id, &kminmers, mers_index, params, q_len);
     let mut final_matches = Vec::<(Match, Chain)>::new();    
     for (key, val) in hits_per_ref.into_iter() {
         let r_id = key;
@@ -159,7 +111,20 @@ pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<Stri
         }
     }
     if !final_matches.is_empty() {
-        let (v, c) = &final_matches.iter().max_by(|a, b| a.1.len().cmp(&a.1.len())).unwrap();
+        if final_matches.len() > 1 {
+            final_matches.sort_by(|a, b| a.1.get_count().cmp(&b.1.get_count()));
+            final_matches.reverse();
+            let mut max_c = &final_matches[0].1;
+            let mut max_score = max_c.get_count();
+            for j in 1..final_matches.len() {
+                let (v, c) = &final_matches[j];
+                //println!("M{}!{:?}!{}!", j, v, c);
+                let score = c.get_count();
+                if score == max_score {return None;}
+            }
+
+        }
+        let (v, c) = &final_matches[0];
         if params.a {
             let (q_coords, r_coords) = c.get_remaining_seqs(&v);
             for i in 0..q_coords.len() {
@@ -169,7 +134,6 @@ pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<Stri
             }
         }
         return Some(v.clone());
-        //println!("Picked {:?}", v);
     }
     return None;
 }

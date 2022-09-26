@@ -14,7 +14,6 @@ use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records};
 use dashmap::DashMap;
 use thread_id;
 use super::mers;
-use crate::kminmer::Kminmer;
 use crate::mers::{Match, AlignCand, Offset};
 use std::path::PathBuf;
 use super::Params;
@@ -23,7 +22,7 @@ use indicatif::ProgressBar;
 use std::time::Instant;
 use dashmap::DashSet;
 use crate::index::{Entry, Index};
-use crate::align::{get_slices, align_slices};
+use crate::align::{get_slices, align_slices, AlignStats};
 use std::borrow::Cow;
 
 // Main function for all FASTA parsing + mapping / alignment functions.
@@ -128,6 +127,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         let ref_id = record.id().unwrap().to_string();
         *found = ref_process_read_aux_aln(&ref_str, &ref_id);
     };
+
     let ref_main_thread_aln = |found: &mut Option<u64>| { // runs in main thread
         None::<()>
     };
@@ -136,23 +136,26 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     //  Closures for base-level alignment (obtaining query sequence slices and alignment)
     
-    let query_process_read_aux_aln = |seq_str: &[u8], seq_id: &str| -> Option<u64> {
-        align_slices(seq_id, seq_str, &aln_coords_q, &aln_seqs_cow);
-        return Some(1)
+    let query_process_read_aux_aln = |seq_str: &[u8], seq_id: &str| -> Option<AlignStats> {
+        let align_stats = align_slices(seq_id, seq_str, &aln_coords_q, &aln_seqs_cow);
+        return Some(align_stats)
     };
-    let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
+    let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<AlignStats>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_aln(&seq_str, &seq_id);
-        if params.a {eprintln!("{}", seq_id);}
+        //if params.a {eprintln!("{}", seq_id);}
     
     };
-    let query_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
+    let query_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<AlignStats>| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_aln(&seq_str, &seq_id);
     };
-    let mut main_thread_aln = |found: &mut Option<u64>| { // runs in main thread
+    let mut global_align_stats = AlignStats{ successful: 0, failed: 0 };
+    let mut main_thread_aln = |align_stats: &mut Option<AlignStats>| { // runs in main thread
+        global_align_stats.successful += align_stats.as_ref().unwrap().successful;
+        global_align_stats.failed     += align_stats.as_ref().unwrap().failed;
         None::<()>
     };
 
@@ -226,6 +229,10 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
             read_process_fastq_records(reader, threads as u32, threads, query_process_read_fastq_aln, |record, found| {main_thread_aln(found)});
             let query_duration = query_start.elapsed();
             println!("Aligned query sequences in {:?}.", query_duration);
+        }
+        if global_align_stats.failed > 0
+        {
+            println!("[warning] Alignment stats: {} successful, {} failed", global_align_stats.successful, global_align_stats.failed);
         }
     }
 }

@@ -42,6 +42,10 @@ impl Chain {
         return self.hits.iter().max_by(|a, b| a.score.cmp(&b.score)).unwrap();
     }
 
+    pub fn filter_hit_span(&mut self) {
+        self.hits.retain(|h| h.span_diff() < (h.r_span()));
+    }
+
     // Get the total difference in span (difference between length of query covered by a Hit and length of reference covered by the Hit) of the Chain.
     pub fn span_diff(&self) -> usize {
         let mut s = 0;
@@ -185,6 +189,91 @@ impl Chain {
         return false;
     } 
 
+    pub fn check_hits(&self) -> bool {
+        for i in 1..self.len() {
+            let mut prev_h = self.nth(i-1);
+            let mut curr_h = self.nth(i);
+            let b = self.check_hit_compatible(prev_h, curr_h);
+            if !b {return false;}
+        }
+        return true;
+    }
+
+    pub fn fwd_gap_start_too_long(&self, u_q_s: usize, u_r_s: usize, v_q_s: usize, v_r_s: usize) -> bool {
+        (((v_q_s - u_q_s) as i32 - (v_r_s - u_r_s) as i32).abs() > 2000)
+    }
+
+    pub fn rc_gap_start_too_long(&self, u_q_s: usize, u_r_s: usize, v_q_s: usize, v_r_s: usize) -> bool {
+        (((v_q_s - u_q_s) as i32 - (u_r_s - v_r_s) as i32).abs() > 2000)
+    }
+
+    pub fn fwd_gap_end_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_e: usize, v_r_e: usize) -> bool {
+        (((v_q_e - u_q_e) as i32 - (v_r_e - u_r_e) as i32).abs() > 2000)
+    }
+
+    pub fn rc_gap_end_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_e: usize, v_r_e: usize) -> bool {
+        (((v_q_e - u_q_e) as i32 - (u_r_e - v_r_e) as i32).abs() > 2000)
+    }
+
+    pub fn fwd_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
+        (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
+    }
+
+    pub fn rc_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
+        (self.rc_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.rc_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e))
+    }
+
+
+    pub fn fwd_start_inconsistent(&self, u_r_s: usize, v_r_s: usize) -> bool {
+        (v_r_s <= u_r_s)
+    }
+
+    pub fn rc_start_inconsistent(&self, u_r_s: usize, v_r_s: usize) -> bool {
+        (u_r_s <= v_r_s)
+    }
+
+    pub fn fwd_end_inconsistent(&self, u_r_e: usize, v_r_e: usize) -> bool {
+        (v_r_e <= u_r_e)
+    }
+
+    pub fn rc_end_inconsistent(&self, u_r_e: usize, v_r_e: usize) -> bool {
+        (u_r_e <= v_r_e)
+    }
+
+    pub fn fwd_inconsistent(&self, u_r_s: usize, v_r_s: usize, u_r_e: usize, v_r_e: usize) -> bool {
+        (self.fwd_start_inconsistent(u_r_s, v_r_s) || self.fwd_end_inconsistent(u_r_e, v_r_e))
+    }
+    pub fn rc_inconsistent(&self, u_r_s: usize, v_r_s: usize, u_r_e: usize, v_r_e: usize) -> bool {
+        (self.rc_start_inconsistent(u_r_s, v_r_s) || self.rc_end_inconsistent(u_r_e, v_r_e))
+    }
+
+
+    pub fn check_hit_compatible(&self, h_1: &Hit, h_2: &Hit) -> bool {
+        if h_1 == h_2 {return true;}
+        let mut u = h_1;
+        let mut v = h_2;
+        if (h_1.q_start > h_2.q_start) {v = h_1; u = h_2;}
+        let mut u_q_s = u.q_start;
+        let mut u_q_e = u.q_end;
+        let mut v_q_s = v.q_start;
+        let mut v_q_e = v.q_end;
+        let mut u_r_s = u.r_start;
+        let mut u_r_e = u.r_end;
+        let mut v_r_s = v.r_start;
+        let mut v_r_e = v.r_end;
+        if u.rc {
+            u_r_s = u.r_end;
+            u_r_e = u.r_start;
+            v_r_s = v.r_end;
+            v_r_e = v.r_start;
+            if (self.rc_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.rc_gap_too_long(u_q_s, u_r_s, u_q_e, u_r_e, v_q_s, v_r_s, v_q_e, v_r_e)) {return false;}
+        }
+        else {
+            if (self.fwd_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.fwd_gap_too_long(u_q_s, u_r_s, u_q_e, u_r_e, v_q_s, v_r_s, v_q_e, v_r_e)) {return false;} 
+        }
+        return true;
+    }
+
     // Sort the Chain by the query k-min-mer offsets of the Hits.
     pub fn sort_by_q_offset(&mut self) {
         self.hits.sort_by(|a, b| a.q_offset.cmp(&b.q_offset));
@@ -200,7 +289,7 @@ impl Chain {
 
     // A Hit h_p is in the "equivalence class" E(h) of a Hit h if the absolute difference of the k-min-mer offset differences of h and h_p are below some threshold g (see hit.rs for a definition of offset difference in the context of a Hit).
     pub fn find_eq_class(&self, h: &Hit, g: usize) -> Chain {
-        let c = self.hits.iter().filter(|h_p| (h_p.offset_diff() as i32 - h.offset_diff() as i32).abs() < g as i32).cloned().collect::<Vec<Hit>>();
+        let c = self.hits.iter().filter(|h_p| (h_p.offset_diff() as i32 - h.offset_diff() as i32).abs() < g as i32 && self.check_hit_compatible(h, h_p)).cloned().collect::<Vec<Hit>>();
         Chain::new(&c)
     }
 
@@ -226,6 +315,11 @@ impl Chain {
         for i in 0..self.len() {
             let mut eqc = self.find_eq_class(self.nth(i), g);
             if eqc.len() > best_eqc.len() {best_eqc = eqc;}
+            else if eqc.len() == best_eqc.len() {
+                if eqc.get_count() >= best_eqc.get_count() {
+                    best_eqc = eqc;
+                }
+            }
         }
         best_eqc
     }
@@ -241,18 +335,17 @@ impl Chain {
     // MAPQ score defaults to 60 if the second longest equivalence class is empty, or if the longest equivalence class has length > 3.
 
     // For all pairs of equivalence classes with MAPQ < 60, MAPQ score defaults to 1 if the longest equivalence class has length <= 3.
-    pub fn get_mapq(&mut self, g: usize) -> usize {
-        let mut mapq = 0;
+    pub fn get_mapq(&mut self, g: usize, k: usize) -> usize {
+        let mut mapq = 1;
         let mut best_eqc = self.find_best_eqc(g);
         let mut second_eqc = self.find_best_2eqc(&best_eqc, g);
+        //println!("EQC1!CNT!{}!{}", best_eqc, best_eqc.get_count());
+        //println!("EQC2!CNT!{}!{}", second_eqc, second_eqc.get_count());
         if !second_eqc.is_empty() {
-            mapq = kminmer_mapq(best_eqc.len(), second_eqc.len());
+            mapq = kminmer_mapq(best_eqc.get_count(), second_eqc.get_count());
         }
-        else if best_eqc.len() > 3 {mapq = 60;}
-        else {mapq = 1;}
-        if mapq < 60 {
-            if best_eqc.len() <= 3 {mapq = 1;}
-        }
+        else if best_eqc.len() > 3 || best_eqc.get_count() > (k + 1) * 3 {mapq = 60;}
+        best_eqc.sort_by_q_offset();
         self.replace(&best_eqc);
         mapq
     }
@@ -261,19 +354,28 @@ impl Chain {
 
     // MAPQ score defaults to 60 if the resulting Chain (the longest equivalence class) has length > 3, and 1 otherwise.
     pub fn partition(&mut self, params: &Params, q_len: usize) -> (usize, usize) {
-        let mut g = 1000; // This could be added to Params later.
+        let mut g = 1000;
+        let mut k = params.k; // This could be added to Params later.
         let mut mapq = 0;
-        let mut score = self.get_score();
         if self.len() > 1 {
-            mapq = self.get_mapq(g);
-            self.sort_by_q_offset();
-            if self.consistent(q_len) {score = self.get_score();} 
-            else {
-                if self.len() > 3 {mapq = 60;}
-                else {mapq = 1;}
+            mapq = self.get_mapq(g, k);
+            //println!("PREVQ!{}!{}", mapq, self);
+            if self.len() > 3 {mapq = 60;}
+            //println!("CURRQ!{}!{}", mapq, self);
+            if mapq < 60 && mapq >= 1 {
+                if self.len() <= 3 && self.get_count() < (params.k + 1) * 3 {
+                    mapq = 1;
+                    //println!("CURRQ!{}!{}", mapq, self);
+                } 
             }
         }
-        (mapq, score)
+        if mapq <= 1 {
+            if self.get_count() > (2*k) - 3 {
+                mapq = 40;
+            }
+            //println!("CURRQ!{}!{}", mapq, self);
+        }
+        (mapq, self.get_count())
     }
     
     // Extends the first and last Hit locations in the Chain to the length of the query.
@@ -285,8 +387,8 @@ impl Chain {
         let mut r_start = first.r_start;
         let mut r_end = last.r_end;
         if rc {
-            r_start = last.r_start;
-            r_end = first.r_end;
+            r_start = last.r_end;
+            r_end = first.r_start;
         }
         let mut score = self.get_count();
         let mut final_r_start = 0;
@@ -357,7 +459,7 @@ impl Chain {
         Some(self.find_coords(is_rc, r_id, r_len, q_id, q_len, mapq))
     }
 
-    // Obtains query and reference intervals that are not covered by a Hit in the final Chain object (optional, for base-level alignment).
+    // Obtains query and reference intervals that are not covered by a Hit in the final Chain object (only for base-level alignment).
     pub fn get_remaining_seqs(&self, m: &Match) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
         let mut q_coords = Vec::<(usize, usize)>::new();
         let mut r_coords = Vec::<(usize, usize)>::new();
