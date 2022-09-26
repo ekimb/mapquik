@@ -30,7 +30,7 @@ impl Hit {
             q_end: q.end,
             r_start: r.start,
             r_end: r.end,
-            count: params.k,
+            count: 1,
             score: 0,
             rc: (q.rev != r.rc),
             q_offset: q.offset,
@@ -71,20 +71,21 @@ impl Hit {
     }
 
     // Check if this Hit can be extended by another query Kminmer matching a new reference Entry. 
-    pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry) -> bool {
+    pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry, q_len: usize) -> bool {
         ((r.id == self.r_id) && ((q.rev != r.rc) == self.rc) && 
-        (self.rc && ((p.offset as i32 - r.offset as i32) == 1)) || 
-        (!self.rc && ((p.offset as i32 - r.offset as i32) == -1)))
+        (self.rc && (self.r_start > r.start) && (self.r_start - r.start < q_len - q.end)) || 
+        (!self.rc && (self.r_end < r.end) && (r.end - self.r_end < q_len - q.end)))
     }
 
     // Extend this Hit if it can be extended by the next Kminmer match.
-    pub fn extend(&mut self, i: usize, query_mers: &Vec<Kminmer>, index: &Index, p: &Entry, params: &Params) {
+    pub fn extend(&mut self, i: usize, query_mers: &Vec<Kminmer>, index: &Index, p: &Entry, params: &Params, q_len: usize) {
         if i == query_mers.len() - 1 {return;}
         let q = &query_mers[i + 1];
         let (b, r) = index.get_entry(&q);
-        if b && self.check(q, &r, p) {
+        println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
+        if b && self.check(q, &r, p, q_len) {
             self.update(q, &r, params);
-            self.extend(i + 1, query_mers, index, &r, params);
+            self.extend(i + 1, query_mers, index, &r, params, q_len);
         }
     }
     
@@ -113,6 +114,10 @@ impl Hit {
     // Calculate the number of reference bases covered by this Hit.
     pub fn r_span(&self) -> usize {
         (self.r_end as i32 - self.r_start as i32).abs() as usize
+    }
+
+    pub fn span_diff(&self) -> usize {
+        (self.q_span() as i32 - self.r_span() as i32).abs() as usize
     }
 }
 
