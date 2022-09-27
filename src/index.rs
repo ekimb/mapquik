@@ -44,7 +44,7 @@ impl Entry {
 
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
-    index: Arc<DashMap<u64, Entry>>
+    pub index: Arc<DashMap<u64, Entry>>
 }
 impl Index {
 
