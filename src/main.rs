@@ -38,7 +38,6 @@ use crate::chain::{Chain, kminmer_mapq};
 use rust_seq2kminmers::Kminmer;
 mod closures;
 mod mers;
-mod nthash_hpc;
 mod align;
 mod index;
 mod hit;
