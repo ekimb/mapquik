@@ -4,6 +4,9 @@
 use crate::Kminmer;
 use dashmap::DashMap;
 use std::sync::Arc;
+use std::hash::BuildHasherDefault;
+use fxhash::FxHasher64;
+
 
 // An Entry object holds information for a reference k-min-mer without storing the minimizer hashes themselves.
 #[derive(Clone, Debug, PartialEq)]
@@ -38,27 +41,30 @@ impl Entry {
 
     // Check if this Entry is Empty.
     pub fn is_empty(&self) -> bool {
-        self.id.is_empty()
+        self.end == 0
     }
 }
 
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
-    pub index: Arc<DashMap<u64, Entry>>
+    pub index: Arc<DashMap<u64, Entry, BuildHasherDefault<FxHasher64>>>
 }
 impl Index {
 
     // Create a new Index.
     pub fn new() -> Self {
-        Index {index: Arc::new(DashMap::new())}
+        let hasher = BuildHasherDefault::<FxHasher64>::default();
+        Index {index: Arc::new(DashMap::with_hasher(hasher))}
     }
+
 
     // Return the Entry associated with the k-min-mer hash h, or None if none.
     pub fn get(&self, h: &u64) -> Option<Entry> {
         let e = self.index.get(h);
-        if e.is_some() {
-            let r = e.unwrap().clone();
-            if !r.is_empty() {return Some(r);}
+        if let Some(r) = e {
+            if !r.is_empty() {
+                return Some(r.clone());
+            }
         }
         None
     }
@@ -67,15 +73,5 @@ impl Index {
     pub fn add(&self, h: u64, id: &str, start: usize, end: usize, offset: usize, rc: bool) {
         let e = self.index.insert(h, Entry::new(id, start, end, offset, rc));
         if e.is_some() {self.index.insert(h, Entry::empty());}
-    }
-
-    // Get entry associated with a Kminmer q by getting its hash, or an empty Entry if None.
-    pub fn get_entry(&self, q: &Kminmer) -> (bool, Entry) {
-        let e = self.get(&q.get_hash());
-        let r = match e.is_some() {
-            true => (true, e.unwrap()),
-            false => (false, Entry::empty())
-        };
-        r
     }
 }

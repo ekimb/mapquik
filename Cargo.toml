@@ -1,7 +1,7 @@
 [package]
 name = "hifimap"
 version = "0.1.0"
-authors = ["ekimb, rayan, ksahlin"]
+authors = ["ekimb, rayan"]
 edition = "2018"
 default-run = "hifimap"
 
@@ -47,7 +47,7 @@ rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
 libwfa = { git = "https://github.com/rchikhi/rs-wfa" }
 #libwfa = "0.1"
 rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
-
+fxhash = "0.2.1"
 
 [profile.dev]
 opt-level = 3

@@ -8,7 +8,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use dashmap::{DashMap, DashSet};
-use rust_seq2kminmers::{KminmersIterator};
+use rust_seq2kminmers::KminmersIterator;
 
 // A final Match: (Query ID, ref ID, query length, reference length, query start position, query end position, reference start position, reference end position, score, strand direction, MAPQ score)
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
@@ -18,7 +18,6 @@ pub type Offset = (usize, usize);
 
 // A tuple of (Query interval, query ID, reference interval, strand direction) for alignment.
 pub type AlignCand = (Offset, String, Offset, bool);
-
 
 // Extract k-min-mers from reference. We don't store k-min-mer objects or hashes in a Vec, but rather immediately insert into the Index.
 pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index: &Index) -> usize {
@@ -54,18 +53,15 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let l = params.l;
     let k = params.k;
-    let mut i = 0;
     if query_it_raw.is_none() {return hits_per_ref;}
     let mut query_it = query_it_raw.as_mut().unwrap();
     while let Some(q) = query_it.next() {
-        let re = index.index.get(&q.get_hash());
+        let re = index.get(&q.get_hash());
         if let Some(r) = re {
             let mut h = Hit::new(query_id, &q, &r, params);
-            h.extend(i, &mut query_it, index, &r, params, q_len);
-            hits_per_ref.entry(r.id.to_string()).or_insert(Vec::new()).push(h.clone());
-            i += h.count;
+            h.extend(&mut query_it, index, &r, params, q_len);
+            hits_per_ref.entry(r.id).or_insert(Vec::new()).push(h);
         }
-        else {i += 1};
     }
     hits_per_ref
 }
@@ -75,29 +71,30 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
 pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &Index, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<Match> {
     let mut kminmers = extract(q_id, q_str, params);
     let mut hits_per_ref = chain_hits(q_id, &mut kminmers, mers_index, params, q_len);
-    let mut final_matches = Vec::<(Match, Chain)>::new();    
-    for (key, val) in hits_per_ref.into_iter() {
-        let r_id = key;
-        let mut hits_raw = val.to_vec();
-        let r_len = *ref_lens.get(&r_id).unwrap().value();
+    let mut final_matches = Vec::<Match>::new();    
+    for e in hits_per_ref.iter() {
+        let (r_id, hits_raw) = e;
+        let r_len = *ref_lens.get(r_id).unwrap();
         if !hits_raw.is_empty() {
             let mut c = Chain::new(&hits_raw);
             let mut v = c.get_match(&r_id, r_len, q_id, q_len, params);
-            if v.is_some() {
-                let m = v.unwrap();
-                final_matches.push((m, c));
-            }
+            if let Some(m) = v {final_matches.push(m);}
         }
     }
-    if !final_matches.is_empty() {
-        if final_matches.len() > 1 {
-            final_matches.sort_by(|a, b| a.1.get_count().cmp(&b.1.get_count()));
-            final_matches.reverse();
-            let mut max_c = &final_matches[0].1;
-            let mut max_score = max_c.get_count();
-            if max_score == final_matches[1].1.get_count() {return None;}
+    let final_matches_len = final_matches.len();
+    if final_matches_len == 0 {
+        return None;
+    }
+    else if final_matches_len > 1 {
+        final_matches.sort_by(|a, b| a.8.cmp(&b.8));
+        let mut max_score = &final_matches[final_matches_len - 1].8;
+        if max_score == &final_matches[final_matches_len - 2].8 {
+            return None;
         }
-        let (v, c) = &final_matches[0];
+        return Some(final_matches[final_matches_len - 1].clone());
+    }
+    else {
+       /* let (v, c) = &final_matches[0];
         if params.a {
             let (q_coords, r_coords) = c.get_remaining_seqs(&v);
             for i in 0..q_coords.len() {
@@ -105,10 +102,9 @@ pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<Stri
                 let r_coord_tup = r_coords[i];
                 aln_coords.get_mut(&v.1).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0, q_coord_tup.1), v.9));
             }
-        }
-        return Some(v.clone());
+        }*/
+        return Some(final_matches[0].clone());
     }
-    return None;
 }
 
 

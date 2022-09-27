@@ -37,8 +37,8 @@ impl Hit {
             q_offset: q.offset,
             r_offset: r.offset,
         };
-        let new_score = h.score_match(q, r, params);
-        h.score = new_score;
+        //let new_score = h.score_match(q, r, params);
+        //h.score = new_score;
         h
 
     }
@@ -62,33 +62,33 @@ impl Hit {
 
     // Update the Hit start and end locations, count, and score.
     pub fn update(&mut self, q: &Kminmer, r: &Entry, params: &Params) {
-        let new_score_add = self.score_extension(q, r, params);
+        //let new_score_add = self.score_extension(q, r, params);
         if self.rc {self.r_start = r.start;}
         else {self.r_end = r.end;}
         self.q_end = q.end;
         self.count += 1;
-        self.score += new_score_add;
+        //self.score += new_score_add;
 
     }
 
     // Check if this Hit can be extended by another query Kminmer matching a new reference Entry. 
     pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry, q_len: usize) -> bool {
         ((r.id == self.r_id) && ((q.rev != r.rc) == self.rc) && 
-        (self.rc && (self.r_start > r.start) && (p.offset - r.offset == 1)) || 
-        (!self.rc && (self.r_end < r.end) && (r.offset - p.offset == 1)))
+        (self.rc  && (p.offset - r.offset == 1)) || 
+        (!self.rc && (r.offset - p.offset == 1)))
     }
 
     // Extend this Hit if it can be extended by the next Kminmer match.
-    pub fn extend(&mut self, i: usize, query_it: &mut KminmersIterator, index: &Index, p: &Entry, params: &Params, q_len: usize) {
+    pub fn extend(&mut self, query_it: &mut KminmersIterator, index: &Index, p: &Entry, params: &Params, q_len: usize) {
         let rq = query_it.next();
-        if rq.is_none() {return;}
-        let q = rq.unwrap();
-        let re = index.index.get(&q.get_hash());
-        //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
-        if let Some(r) = re {
-            if self.check(&q, &r, p, q_len) {
-                self.update(&q, &r, params);
-                self.extend(i + 1, query_it, index, &r, params, q_len)
+        if let Some(q) = rq {
+            let re = index.get(&q.get_hash());
+            //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
+            if let Some(r) = re {
+                if self.check(&q, &r, p, q_len) {
+                    self.update(&q, &r, params);
+                    self.extend(query_it, index, &r, params, q_len)
+                }
             }
         }
     }
