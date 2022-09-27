@@ -20,28 +20,6 @@ pub type Offset = (usize, usize);
 pub type AlignCand = (Offset, String, Offset, bool);
 
 
-// Obtain HPC'd sequences and position vectors.
-pub fn encode_rle(inp_seq: &str) -> (String, Vec<usize>) {
-    let mut prev_char = '#';
-    let mut hpc_seq = String::new();
-    let mut pos_vec = Vec::<usize>::new();
-
-    let mut prev_i = 0;
-    for (i, c) in inp_seq.chars().enumerate() {
-        if c == prev_char && "ACTGactgNn".contains(c) {continue;}
-        if prev_char != '#' {
-            hpc_seq.push(prev_char);
-            pos_vec.push(prev_i);
-            prev_i = i;
-        }
-        prev_char = c;
-    }
-    hpc_seq.push(prev_char);
-    pos_vec.push(prev_i);
-    (hpc_seq, pos_vec)
-}
-
-
 // Extract k-min-mers from reference. We don't store k-min-mer objects or hashes in a Vec, but rather immediately insert into the Index.
 pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index: &Index) -> usize {
     let l = params.l;
