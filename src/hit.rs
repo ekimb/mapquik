@@ -82,7 +82,7 @@ impl Hit {
         if i == query_mers.len() - 1 {return;}
         let q = &query_mers[i + 1];
         let (b, r) = index.get_entry(&q);
-        println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
+        //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
         if b && self.check(q, &r, p, q_len) {
             self.update(q, &r, params);
             self.extend(i + 1, query_mers, index, &r, params, q_len);
