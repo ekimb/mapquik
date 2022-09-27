@@ -4,6 +4,7 @@
 use crate::{Entry, Index, Kminmer, Params};
 use std::cmp;
 use std::fmt;
+use rust_seq2kminmers::KminmersIterator;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hit {
@@ -73,19 +74,22 @@ impl Hit {
     // Check if this Hit can be extended by another query Kminmer matching a new reference Entry. 
     pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry, q_len: usize) -> bool {
         ((r.id == self.r_id) && ((q.rev != r.rc) == self.rc) && 
-        (self.rc && (self.r_start > r.start) && (self.r_start - r.start < q_len - q.end)) || 
-        (!self.rc && (self.r_end < r.end) && (r.end - self.r_end < q_len - q.end)))
+        (self.rc && (self.r_start > r.start) && (p.offset - r.offset == 1)) || 
+        (!self.rc && (self.r_end < r.end) && (r.offset - p.offset == 1)))
     }
 
     // Extend this Hit if it can be extended by the next Kminmer match.
-    pub fn extend(&mut self, i: usize, query_mers: &Vec<Kminmer>, index: &Index, p: &Entry, params: &Params, q_len: usize) {
-        if i == query_mers.len() - 1 {return;}
-        let q = &query_mers[i + 1];
-        let (b, r) = index.get_entry(&q);
+    pub fn extend(&mut self, i: usize, query_it: &mut KminmersIterator, index: &Index, p: &Entry, params: &Params, q_len: usize) {
+        let rq = query_it.next();
+        if rq.is_none() {return;}
+        let q = rq.unwrap();
+        let re = index.index.get(&q.get_hash());
         //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
-        if b && self.check(q, &r, p, q_len) {
-            self.update(q, &r, params);
-            self.extend(i + 1, query_mers, index, &r, params, q_len);
+        if let Some(r) = re {
+            if self.check(&q, &r, p, q_len) {
+                self.update(&q, &r, params);
+                self.extend(i + 1, query_it, index, &r, params, q_len)
+            }
         }
     }
     
