@@ -30,9 +30,11 @@ pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index
     let iter = KminmersIterator::new(inp_seq_raw, l, k, density, params.use_hpc).unwrap();
     let mut count = 0;
     for kminmer in iter {
+        //println!("{:?}", kminmer);
         // Add a reference k-min-mer to the Index.
-        mers_index.add(kminmer.get_hash(), seq_id, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
+        mers_index.add(kminmer.get_hash_u64(), seq_id, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
         count += 1;
+        //eprintln!("{}\r", count);
     }
     count
 }
@@ -56,7 +58,7 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
     if query_it_raw.is_none() {return hits_per_ref;}
     let mut query_it = query_it_raw.as_mut().unwrap();
     while let Some(q) = query_it.next() {
-        let re = index.get(&q.get_hash());
+        let re = index.get(&q.get_hash_u64());
         if let Some(r) = re {
             let mut h = Hit::new(query_id, &q, &r, params);
             h.extend(&mut query_it, index, &r, params, q_len);
@@ -75,25 +77,16 @@ pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<Stri
     for e in hits_per_ref.iter() {
         let (r_id, hits_raw) = e;
         let r_len = *ref_lens.get(r_id).unwrap();
-        if !hits_raw.is_empty() {
-            let mut c = Chain::new(&hits_raw);
-            let mut v = c.get_match(&r_id, r_len, q_id, q_len, params);
-            if let Some(m) = v {final_matches.push(m);}
-        }
+        let mut c = Chain::new(&hits_raw);
+        let mut v = c.get_match(&r_id, r_len, q_id, q_len, params);
+        if let Some(m) = v {final_matches.push(m);}
     }
-    let final_matches_len = final_matches.len();
-    if final_matches_len == 0 {
-        return None;
-    }
-    else if final_matches_len > 1 {
-        final_matches.sort_by(|a, b| a.8.cmp(&b.8));
-        let mut max_score = &final_matches[final_matches_len - 1].8;
-        if max_score == &final_matches[final_matches_len - 2].8 {
-            return None;
-        }
-        return Some(final_matches[final_matches_len - 1].clone());
-    }
-    else {
+    let matches_len = final_matches.len();
+    return match matches_len {
+        0 => None,
+        1 => Some(final_matches[0].clone()),
+        _ => determine_best_match(&mut final_matches, matches_len),
+    };
        /* let (v, c) = &final_matches[0];
         if params.a {
             let (q_coords, r_coords) = c.get_remaining_seqs(&v);
@@ -103,8 +96,15 @@ pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<Stri
                 aln_coords.get_mut(&v.1).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0, q_coord_tup.1), v.9));
             }
         }*/
-        return Some(final_matches[0].clone());
-    }
+}
+
+pub fn determine_best_match(matches: &mut Vec<Match>, matches_len: usize) -> Option<Match> {
+    matches.sort_by(|a, b| a.8.cmp(&b.8));
+    let mut max_score = &matches[matches_len - 1].8;
+    return match max_score == &matches[matches_len - 2].8 {
+        true => None,
+        false => Some(matches[matches_len - 1].clone()),
+    };
 }
 
 
@@ -117,9 +117,7 @@ pub fn output_paf(all_matches: &DashSet<(String, Option<Match>)>, paf_file: &mut
             write!(unmap_file, "{}\n", id).expect("Error writing line.");
             continue;
         }
-        let v = v_opt.clone().unwrap();
-        let q_id = v.0.to_string();
-        let r_id = v.1.to_string();
+        let v = v_opt.as_ref().unwrap();
         let query_len = v.2;
         let ref_len = v.3;
         let q_start = v.4;
@@ -127,12 +125,12 @@ pub fn output_paf(all_matches: &DashSet<(String, Option<Match>)>, paf_file: &mut
         let mut r_start = v.6;
         let mut r_end = v.7;
         let score = v.8;
-        let rc : String = match v.9 {true => "-".to_string(), false => "+".to_string()};
+        let rc : &str = match v.9 {true => "-", false => "+"};
         let mapq = v.10;
         if mapq <= 1 {
             write!(unmap_file, "{}\n", id).expect("Error writing line.");
         }
-        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", q_id, query_len, q_start, q_end, rc, r_id, ref_len, r_start, r_end, score, ref_len, mapq);
+        let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", v.0, query_len, q_start, q_end, rc, v.1, ref_len, r_start, r_end, score, ref_len, mapq);
         write!(paf_file, "{}", paf_line).expect("Error writing line.");
     }
 }

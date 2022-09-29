@@ -82,7 +82,7 @@ impl Hit {
     pub fn extend(&mut self, query_it: &mut KminmersIterator, index: &Index, p: &Entry, params: &Params, q_len: usize) {
         let rq = query_it.next();
         if let Some(q) = rq {
-            let re = index.get(&q.get_hash());
+            let re = index.get(&q.get_hash_u64());
             //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
             if let Some(r) = re {
                 if self.check(&q, &r, p, q_len) {
