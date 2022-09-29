@@ -200,7 +200,7 @@ fn main() {
     let file_size = metadata.len();
     let ref_threads = threads;
     let ref_queue_len = threads;
-    let queue_len = threads; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+    let queue_len = 200; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
 
