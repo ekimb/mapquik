@@ -1,17 +1,15 @@
 
 # pasteur specific paths
 export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/BLEND/bin/
-export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/hifimap-refactor/target/release/
+export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/hifimap/target/release/
 
 
 # ---------------- simulated 10X
 
 
-LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
-#Total execution time: 195.453176694s
-#Maximum RSS: 6.5804214GB
-#1079.66user 40.38system 3:15.53elapsed 572%CPU (0avgtext+0avgdata 6900072maxresident)k
-#8624000inputs+289048outputs (2major+6509438minor)pagefaults 0swaps
+# deprecated, we don't use hard masking anymore as regular reference works even better now thanks to Baris' heuristic of keeping unique kminmers only
+#LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
+LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference chm13v2.0.oneline.fa -k 7 -l 31 -d 0.01 -p hifimap-7-31-0.01-1 --threads 10
 
 \time blend -t 10 -x map-hifi chm13v2.0.fa simulated-chm13v2.0-10X.fa > blend-sim10X.paf
 
@@ -47,7 +45,7 @@ winnowmap -t 10 -W repetitive_k15.txt -x map-pb chm13v2.0.fa simulated-chm13v2.0
 
 
 
-\time hifimap HG002_24kb_2SMRT_cells.dc.v0.3.q20.fastq.fixed --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
+LD_LIBRARY_PATH=. \time hifimap HG002_24kb_2SMRT_cells.dc.v0.3.q20.fastq  --reference chm13v2.0.oneline.fa -k 7 -l 31 -d 0.01 -p hifimap-7-31-0.01-1 --threads 10
 
 #Total execution time: 229.499133928s
 #Maximum RSS: 12.61264GB
@@ -101,3 +99,4 @@ winnowmap -W repetitive_k15.txt -x map-pb chm13v2.0.fa HG002_24kb_2SMRT_cells.dc
 #42061.77user 481.00system 1:12:56elapsed 972%CPU (0avgtext+0avgdata 11055884maxresident)k
 
 
+ awk '$12 == 60 {print}' pafs/file.paf |awk '{print $1}' |sort|uniq|wc -l

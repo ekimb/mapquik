@@ -177,17 +177,17 @@ fn main() {
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
     if filename.as_os_str().is_empty() {panic!("Please specify an input file.");}
     if ref_filename.as_os_str().is_empty() {panic!("Please specify a reference file.");}
-    let mut fasta_reads : bool = false;
-    let mut ref_fasta_reads : bool = false;
+    let mut reads_are_fasta : bool = false;
+    let mut ref_is_fasta    : bool = false;
     let filename_str = filename.to_str().unwrap();
     if filename_str.contains(".fasta.") || filename_str.contains(".fa.") || filename_str.ends_with(".fa") || filename_str.ends_with(".fasta") { // not so robust but will have to do for now
-        fasta_reads = true;
+        reads_are_fasta = true;
         println!("Input file: {}", filename_str);
         println!("Format: FASTA");
     }
     let ref_filename_str = ref_filename.to_str().unwrap();
     if ref_filename_str.contains(".fasta.") || ref_filename_str.contains(".fa.") || ref_filename_str.ends_with(".fa") || ref_filename_str.ends_with(".fasta") { // not so robust but will have to do for now
-        ref_fasta_reads = true;
+        ref_is_fasta = true;
         println!("Reference file: {}", ref_filename_str);
         println!("Format: FASTA");
     }
@@ -224,7 +224,7 @@ fn main() {
                              // parsing
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
-    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
+    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);
     //if params.a {
        // println!("Running WFA...");
        // wfa::run_wfa(&filename, &ref_filename, &matches, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
