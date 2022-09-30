@@ -111,7 +111,7 @@ impl Chain {
         self.hits.reverse();
     }
 
-    pub fn check_hit_compatible(&self, h1: &Hit, h2: &Hit) -> bool {
+    pub fn check_hit_compatible(&self, h1: &Hit, h2: &Hit, g: usize) -> bool {
         let (u, v) = match h1.q_offset < h2.q_offset {
             true => (h1, h2),
             false => (h2, h1),
@@ -125,10 +125,10 @@ impl Chain {
         let mut v_r_s = v.r_start;
         let mut v_r_e = v.r_end;
         if u.rc {
-            if (self.rc_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.rc_gap_too_long(u_q_s, u_r_s, u_q_e, u_r_e, v_q_s, v_r_s, v_q_e, v_r_e)) {return false;}
+            if (self.rc_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.rc_gap_too_long(u_r_s, u_q_e, v_q_s, v_r_e, g)) {return false;}
         }
         else {
-            if (self.fwd_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.fwd_gap_too_long(u_q_s, u_r_s, u_q_e, u_r_e, v_q_s, v_r_s, v_q_e, v_r_e)) {return false;} 
+            if (self.fwd_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.fwd_gap_too_long(u_q_e, u_r_e, v_q_s, v_r_s, g)) {return false;} 
         }
         return true;
     }
@@ -145,7 +145,7 @@ impl Chain {
 
     }
 
-    pub fn filter_hits(&mut self) {
+    pub fn filter_hits(&mut self, g: usize) {
         let mut hits_to_remove_per_hit = Vec::<(Vec<bool>, usize, usize)>::new();
         let len = self.len();
         for i in 0..len {
@@ -157,7 +157,7 @@ impl Chain {
             for j in 0..len {
                 if i == j {continue;}
                 let mut h_j = self.nth(j);
-                let b = self.check_hit_compatible(h_i, h_j);
+                let b = self.check_hit_compatible(h_i, h_j, g);
                 if b {
                     hits_to_remove[j] = false;
                     hit_remove_count -= 1;
@@ -173,19 +173,19 @@ impl Chain {
     }
 
 
-    pub fn fwd_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
+    pub fn fwd_gap_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, g: usize) -> bool {
        // (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
 
        let g_1 = v_q_s - u_q_e;
        let g_2 = v_r_s - u_r_e;
-       (g_1 as i32 - g_2 as i32).abs() > 2000
+       (g_1 as i32 - g_2 as i32).abs() as usize > g
     }
 
-    pub fn rc_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
+    pub fn rc_gap_too_long(&self, u_r_s: usize, u_q_e: usize, v_q_s: usize, v_r_e: usize, g: usize) -> bool {
         //(self.rc_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.rc_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e))
         let g_1 = v_q_s - u_q_e;
         let g_2 = u_r_s - v_r_e;
-        (g_1 as i32 - g_2 as i32).abs() > 2000
+        (g_1 as i32 - g_2 as i32).abs() as usize > g
     }
 
 
@@ -222,15 +222,6 @@ impl Chain {
         self.hits.sort_by(|a, b| a.q_offset.cmp(&b.r_offset));
     }
 
-
-    // Find an "equivalence class" of a Hit in the Chain:
-
-    // A Hit h_p is in the "equivalence class" E(h) of a Hit h if the absolute difference of the k-min-mer offset differences of h and h_p are below some threshold g (see hit.rs for a definition of offset difference in the context of a Hit).
-    pub fn find_eq_class(&self, h: &Hit, g: usize) -> Chain {
-        let c = self.hits.iter().filter(|h_p| (h_p.offset_diff() as i32 - h.offset_diff() as i32).abs() < g as i32 && self.check_hit_compatible(h, h_p)).cloned().collect::<Vec<Hit>>();
-        Chain::new(&c)
-    }
-
     // Generate a new Chain that has no elements that also occur in another Chain c.
     pub fn find_complement(&self, c: &Chain) -> Chain {
         let mut c_p = self.hits.iter().filter(|h| !c.contains(h)).cloned().collect::<Vec<Hit>>();
@@ -247,50 +238,9 @@ impl Chain {
         self.hits = c.hits().to_vec();
     }
 
-    // Find the longest equivalence class: argmax(len(E(h))) for all Hits h in the Chain.
-    pub fn find_best_eqc(&self, g: usize) -> Chain {
-        let mut best_eqc = Chain::empty();
-        for i in 0..self.len() {
-            let mut eqc = self.find_eq_class(self.nth(i), g);
-            if eqc.len() > best_eqc.len() {best_eqc = eqc;}
-            else if eqc.len() == best_eqc.len() {
-                if eqc.get_count() >= best_eqc.get_count() {
-                    best_eqc = eqc;
-                }
-            }
-        }
-        best_eqc
-    }
+    // Calculates the MAPQ score for the Chain (by checking colinearity), sorts the Chain by the query k-min-mer offsets.
 
-    // Find the second longest equivalence class in the Chain (this is useful for MAPQ calculations).
-    pub fn find_best_2eqc(&self, best_eqc: &Chain, g: usize) -> Chain {
-        let mut rest = self.find_complement(best_eqc);
-        rest.find_best_eqc(g)
-    }
-
-    // Obtain a MAPQ score, given the two longest equivalence classes. 
-    
-    // MAPQ score defaults to 60 if the second longest equivalence class is empty, or if the longest equivalence class has length > 3.
-
-    // For all pairs of equivalence classes with MAPQ < 60, MAPQ score defaults to 1 if the longest equivalence class has length <= 3.
-    pub fn get_mapq(&mut self, g: usize, k: usize) -> usize {
-        let mut mapq = 1;
-        let mut best_eqc = self.find_best_eqc(g);
-        let mut second_eqc = self.find_best_2eqc(&best_eqc, g);
-        //println!("EQC1!CNT!{}!{}", best_eqc, best_eqc.get_count());
-        //println!("EQC2!CNT!{}!{}", second_eqc, second_eqc.get_count());
-        if !second_eqc.is_empty() {
-            mapq = kminmer_mapq(best_eqc.get_count(), second_eqc.get_count());
-        }
-        else if best_eqc.len() > 3 || best_eqc.get_count() > (k + 1) * 3 {mapq = 60;}
-        best_eqc.sort_by_q_offset();
-        self.replace(&best_eqc);
-        mapq
-    }
-
-    // Calculates the MAPQ score for the Chain (by computing the two longest equivalence classes), sorts the Chain by the query k-min-mer offsets, and checks for consistency.
-
-    // MAPQ score defaults to 60 if the resulting Chain (the longest equivalence class) has length > 3, and 1 otherwise.
+    // MAPQ score defaults to 60 if the resulting Chain (the longest equivalence class) has length >= c or count >= s, and 0 otherwise.
     pub fn partition(&mut self, params: &Params, q_len: usize) -> (usize, usize) {
         let mut k = params.k; // This could be added to Params later.
         let mut mapq = 0;
@@ -301,10 +251,10 @@ impl Chain {
                 self.retain_unique();
                 if self.len() == 0 {return (mapq, count);}
                 self.sort_by_q_offset();
-                self.filter_hits();
+                self.filter_hits(params.g);
             }
             count = self.get_count(); 
-            if self.len() > 3 || count > k + 4 {mapq = 60;}
+            if (self.len() >= params.c) || (count >= params.s) {mapq = 60;}
         }
         (mapq, count)
     }

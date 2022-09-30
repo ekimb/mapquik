@@ -50,8 +50,10 @@ pub struct Params {
     density: f64,
     use_hpc: bool, // Rayan to Baris: do we ever map in HPC anymore? let's delete that parameter
     debug: bool,
-    f: usize,
     a: bool,
+    c: usize, // minimum chain length
+    s: usize, // minimum match score (# of matching seeds)
+    g: usize, // maximum gap difference
 }
 
 /// Try to get memory usage (resident set size) in bytes using the `getrusage()` function from libc.
@@ -125,11 +127,21 @@ struct Opt {
     /// minimizers from a read.
     #[structopt(short, long)]
     density: Option<f64>,
-    /// Filter cutoff value
+    /// Minimum chain length
     ///
-    /// Ignores hits of > f locations.
+    /// Only outputs chains of length >= c.
     #[structopt(short, long)]
-    f: Option<usize>,
+    chain: Option<usize>,
+    /// Minimum number of matching seeds
+    ///
+    /// Only outputs chains of >= s matching seeds.
+    #[structopt(short, long)]
+    seed: Option<usize>,
+    /// Maximum nucleotide gap length
+    ///
+    /// Allows chaining of hits with a gap difference of < g.
+    #[structopt(short, long)]
+    gap: Option<usize>,
     /// Reference genome input
     ///
     /// Reference to be indexed and mapped to. 
@@ -153,6 +165,9 @@ fn main() {
     let mut k : usize = 5;
     let mut l : usize = 31;
     let mut f : usize = 1;
+    let mut c = 3;
+    let mut s = 10;
+    let mut g = 2000;
     let a = opt.align;
     let mut density : f64 = 0.01;
     let reference : bool = false;
@@ -180,7 +195,9 @@ fn main() {
     if opt.l.is_some() {l = opt.l.unwrap()} else {println!("Warning: Using default l value ({}).", l);}
     if opt.density.is_some() {density = opt.density.unwrap()} else {println!("Warning: Using default density value ({}%).", density * 100.0);}
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
-    if opt.f.is_some() {f = opt.f.unwrap()} else {println!("Warning: Using default max count ({}).", f);}
+    if opt.chain.is_some() {c = opt.chain.unwrap()} else {println!("Warning: Using default minimum chain length ({}).", c);}
+    if opt.seed.is_some() {s = opt.seed.unwrap()} else {println!("Warning: Using default minimum number of matching seeds ({}).", s);}
+    if opt.gap.is_some() {g = opt.gap.unwrap()} else {println!("Warning: Using default maximum seed gap difference ({}).", g);}
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let debug = opt.debug;
@@ -190,8 +207,10 @@ fn main() {
         density,
         use_hpc,
         debug,
-        f,
         a,
+        c,
+        s,
+        g,
     };
     // init some useful objects
     // get file size for progress bar
