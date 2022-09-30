@@ -82,8 +82,8 @@ impl Chain {
     }
 
     // Return a raw Vec of Hits.
-    pub fn hits(&self) -> Vec<Hit> {
-        self.hits.to_vec()
+    pub fn hits(&self) -> &Vec<Hit> {
+        &self.hits
     }
 
     // Get the first Hit in the Chain.
@@ -111,96 +111,11 @@ impl Chain {
         self.hits.reverse();
     }
 
-    // Check if two Hits in the Chain are "compatible": 
-
-    // a tuple of Hits (u, v) are compatible if:
-
-    // query start locations, 
-    // query end locations,
-    // query k-min-mer offsets,
-    // reference start locations, 
-    // reference end locations,
-    // reference k-min-mer offsets,
-
-    // are strictly increasing in the forward direction, or
-
-    // query start locations, 
-    // query end locations,
-    // query k-min-mer offsets,
-
-    // are strictly increasing, and
-
-    // reference start locations, 
-    // reference end locations,
-    // reference k-min-mer offsets,
-
-    // are strictly decreasing in the reverse direction.
-
-    // plus, the difference between 
-
-    // the distance between the query starting locations of u and v //// the distance between the reference starting locations of u and v 
-    
-    // needs to be small (less than twice the distance between the query starting locations of u and v).
-    pub fn is_edge(&self, i: usize, j: usize, q_len: usize) -> bool {
-        let u = &self.nth(i);
-        let v = &self.nth(j);
-        if !u.rc {
-            if u.r_start < v.r_start &&
-            u.r_end < v.r_end &&
-            u.r_offset < v.r_offset &&
-            u.q_start < v.q_start &&
-            u.q_end < v.q_end &&
-            u.q_offset < v.q_offset &&
-            (v.r_start - u.r_start) < (v.q_start - u.q_start) * 2 {
-                return true;
-            }
-        }
-        else if u.rc {
-            if u.r_start > v.r_start &&
-            u.r_end > v.r_end &&
-            u.r_offset > v.r_offset &&
-            u.q_start < v.q_start &&
-            u.q_end < v.q_end &&
-            u.q_offset < v.q_offset &&
-            (u.r_start - v.r_start) < (v.q_start - u.q_start) * 2 {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Check if a given chain is "consistent": 
-    
-    // A chain c is "consistent" if all consecutive tuples (u, v) of Hits are compatible.
-
-    // This function does a linear pass between all consecutive tuples (u, v), and if u and v are not compatible, removes v from the Chain. If there are no incompatible tuples, it returns true; otherwise it returns false.
-    pub fn consistent(&mut self, q_len: usize) -> bool {
-        let mut rem_self_v = Vec::<Hit>::new();
-        let mut prev_i = 0;
-        for i in 1..self.len() {
-            if !self.is_edge(prev_i, i, q_len) {
-                rem_self_v.push(self.nth(i).clone());
-            }
-            else {prev_i = i;}
-        }
-        let mut rem_self = Chain::new(&rem_self_v);
-        if rem_self_v.is_empty() {return true;}
-        self.retain_complement(&rem_self);  
-        return false;
-    } 
-
-    pub fn check_hits(&self) -> bool {
-        for i in 1..self.len() {
-            let mut prev_h = self.nth(i-1);
-            let mut curr_h = self.nth(i);
-            let b = self.check_hit_compatible(prev_h, curr_h);
-            if !b {return false;}
-        }
-        return true;
-    }
-
-    pub fn check_hit_compatible(&self, u: &Hit, v: &Hit) -> bool {
-        // (h_1.query_offset < h_2.query_offset) should hold
+    pub fn check_hit_compatible(&self, h1: &Hit, h2: &Hit) -> bool {
+        let (u, v) = match h1.q_offset < h2.q_offset {
+            true => (h1, h2),
+            false => (h2, h1),
+        };
         let mut u_q_s = u.q_start;
         let mut u_q_e = u.q_end;
         let mut v_q_s = v.q_start;
@@ -210,10 +125,6 @@ impl Chain {
         let mut v_r_s = v.r_start;
         let mut v_r_e = v.r_end;
         if u.rc {
-            u_r_s = u.r_end;
-            u_r_e = u.r_start;
-            v_r_s = v.r_end;
-            v_r_e = v.r_start;
             if (self.rc_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.rc_gap_too_long(u_q_s, u_r_s, u_q_e, u_r_e, v_q_s, v_r_s, v_q_e, v_r_e)) {return false;}
         }
         else {
@@ -222,51 +133,59 @@ impl Chain {
         return true;
     }
 
+    pub fn retain_unique(&mut self) {
+        let len = self.len();
+        let mut remove_hit_indices = vec![false; len];
+        for i in 0..self.len() {
+            let h_i = self.nth(i);
+            let h_c = self.hits.iter().filter(|hp| hp.r_start == h_i.r_start && hp.r_end == h_i.r_end).count();
+            if h_c > 1 {remove_hit_indices[i] = true;}
+        }
+        self.hits = (0..len).filter(|i| !remove_hit_indices[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
+
+    }
+
     pub fn filter_hits(&mut self) {
-        let mut hits_to_remove_per_hit = Vec::<(Vec<usize>, usize)>::new();
-        for i in 0..self.len() - 1 {
+        let mut hits_to_remove_per_hit = Vec::<(Vec<bool>, usize, usize)>::new();
+        let len = self.len();
+        for i in 0..len {
             let mut h_i = self.nth(i);
-            let mut hits_to_remove = vec![1; self.len()];
-            hits_to_remove[i] = 0;
+            let mut hits_to_remove = vec![true; len];
+            hits_to_remove[i] = false;
+            let mut hit_remove_count = len - 1;
             let mut hits_count = h_i.count;
-            for j in i..self.len() {
+            for j in 0..len {
                 if i == j {continue;}
                 let mut h_j = self.nth(j);
                 let b = self.check_hit_compatible(h_i, h_j);
-                //eprintln!("QH!{}!QR!{}!{}!", h_i, h_j, b);
                 if b {
-                    hits_to_remove[j] = 0;
+                    hits_to_remove[j] = false;
+                    hit_remove_count -= 1;
                     hits_count += h_j.count;
                 }
             }
-            hits_to_remove_per_hit.push((hits_to_remove, hits_count));
+            hits_to_remove_per_hit.push((hits_to_remove, hit_remove_count, hits_count));
         }
-        let mut idx_to_remove = &hits_to_remove_per_hit.iter().max_by(|a, b| a.1.cmp(&b.1)).unwrap().0;
-        self.hits = (0..self.len()).filter(|i| idx_to_remove[*i] == 0).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
+        if hits_to_remove_per_hit.len() == 0 {self.hits = Vec::new(); return;}
+        let mut idx_to_remove = &hits_to_remove_per_hit.iter().max_by(|a, b| a.2.cmp(&b.2)).unwrap().0;
+        self.hits = (0..self.len()).filter(|i| !idx_to_remove[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
+        self.sort_by_q_offset();
     }
 
-    pub fn fwd_gap_start_too_long(&self, u_q_s: usize, u_r_s: usize, v_q_s: usize, v_r_s: usize) -> bool {
-        (((v_q_s - u_q_s) as i32 - (v_r_s - u_r_s) as i32).abs() > 2000)
-    }
-
-    pub fn rc_gap_start_too_long(&self, u_q_s: usize, u_r_s: usize, v_q_s: usize, v_r_s: usize) -> bool {
-        (((v_q_s - u_q_s) as i32 - (u_r_s - v_r_s) as i32).abs() > 2000)
-    }
-
-    pub fn fwd_gap_end_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (((v_q_e - u_q_e) as i32 - (v_r_e - u_r_e) as i32).abs() > 2000)
-    }
-
-    pub fn rc_gap_end_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (((v_q_e - u_q_e) as i32 - (u_r_e - v_r_e) as i32).abs() > 2000)
-    }
 
     pub fn fwd_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
+       // (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
+
+       let g_1 = v_q_s - u_q_e;
+       let g_2 = v_r_s - u_r_e;
+       (g_1 as i32 - g_2 as i32).abs() > 2000
     }
 
     pub fn rc_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (self.rc_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.rc_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e))
+        //(self.rc_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.rc_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e))
+        let g_1 = v_q_s - u_q_e;
+        let g_2 = u_r_s - v_r_e;
+        (g_1 as i32 - g_2 as i32).abs() > 2000
     }
 
 
@@ -379,6 +298,8 @@ impl Chain {
         let mut len = self.len();
         if len >= 1 {
             if len > 1 {
+                self.retain_unique();
+                if self.len() == 0 {return (mapq, count);}
                 self.sort_by_q_offset();
                 self.filter_hits();
             }
