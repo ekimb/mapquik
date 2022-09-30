@@ -5,6 +5,7 @@ use crate::{Entry, Index, Kminmer, Params};
 use std::cmp;
 use std::fmt;
 use rust_seq2kminmers::KminmersIterator;
+use std::iter::Peekable;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hit {
@@ -74,19 +75,19 @@ impl Hit {
     // Check if this Hit can be extended by another query Kminmer matching a new reference Entry. 
     pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry, q_len: usize) -> bool {
         ((r.id == self.r_id) && ((q.rev != r.rc) == self.rc) && 
-        (self.rc  && (p.offset - r.offset == 1)) || 
+        (self.rc && (p.offset - r.offset == 1)) || 
         (!self.rc && (r.offset - p.offset == 1)))
     }
 
     // Extend this Hit if it can be extended by the next Kminmer match.
-    pub fn extend(&mut self, query_it: &mut KminmersIterator, index: &Index, p: &Entry, params: &Params, q_len: usize) {
-        let rq = query_it.next();
-        if let Some(q) = rq {
+    pub fn extend(&mut self, query_it: &mut Peekable<&mut KminmersIterator>, index: &Index, p: &Entry, params: &Params, q_len: usize) {
+        if let Some(q) = query_it.peek() {
             let re = index.get(&q.get_hash_u64());
             //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
             if let Some(r) = re {
                 if self.check(&q, &r, p, q_len) {
                     self.update(&q, &r, params);
+                    query_it.next();
                     self.extend(query_it, index, &r, params, q_len)
                 }
             }

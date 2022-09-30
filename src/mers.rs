@@ -56,7 +56,7 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
     let l = params.l;
     let k = params.k;
     if query_it_raw.is_none() {return hits_per_ref;}
-    let mut query_it = query_it_raw.as_mut().unwrap();
+    let mut query_it = query_it_raw.as_mut().unwrap().peekable();
     while let Some(q) = query_it.next() {
         let re = index.get(&q.get_hash_u64());
         if let Some(r) = re {
@@ -72,7 +72,7 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
 // Extract raw Vecs of Hits, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
 pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &Index, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<Match> {
     let mut kminmers = extract(q_id, q_str, params);
-    let mut hits_per_ref = chain_hits(q_id, &mut kminmers, mers_index, params, q_len);
+    let hits_per_ref = chain_hits(q_id, &mut kminmers, mers_index, params, q_len);
     let mut final_matches = Vec::<Match>::new();    
     for e in hits_per_ref.iter() {
         let (r_id, hits_raw) = e;
