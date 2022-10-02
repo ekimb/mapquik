@@ -176,16 +176,16 @@ impl Chain {
     pub fn fwd_gap_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, g: usize) -> bool {
        // (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
 
-       let g_1 = v_q_s - u_q_e;
-       let g_2 = v_r_s - u_r_e;
-       (g_1 as i32 - g_2 as i32).abs() as usize > g
+       let g_1 = v_q_s as i32 - u_q_e as i32;
+       let g_2 = v_r_s as i32 - u_r_e as i32;
+       (g_1 - g_2).abs() as usize > g
     }
 
     pub fn rc_gap_too_long(&self, u_r_s: usize, u_q_e: usize, v_q_s: usize, v_r_e: usize, g: usize) -> bool {
         //(self.rc_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.rc_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e))
-        let g_1 = v_q_s - u_q_e;
-        let g_2 = u_r_s - v_r_e;
-        (g_1 as i32 - g_2 as i32).abs() as usize > g
+        let g_1 = v_q_s as i32 - u_q_e as i32;
+        let g_2 = u_r_s as i32- v_r_e as i32;
+        (g_1 - g_2).abs() as usize > g
     }
 
 

@@ -1,7 +1,7 @@
 // mers.rs
 // Contains the "Match", "Offset", and "AlignCand" types, along with driver functions for obtaining reference and query k-min-mers, Hits, Chains, and final coordinates.
 
-use crate::{Chain, Entry, Hit, File, Kminmer, Index, Params, kminmer_mapq};
+use crate::{Chain, Entry, Hit, File, Kminmer, Index, Params, kminmer_mapq, Stats};
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
@@ -56,15 +56,18 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
     let l = params.l;
     let k = params.k;
     if query_it_raw.is_none() {return hits_per_ref;}
+    let mut stats = Stats::new(query_id);
     let mut query_it = query_it_raw.as_mut().unwrap().peekable();
     while let Some(q) = query_it.next() {
         let re = index.get(&q.get_hash_u64());
         if let Some(r) = re {
             let mut h = Hit::new(query_id, &q, &r, params);
             h.extend(&mut query_it, index, &r, params, q_len);
+            stats.add(&r);
             hits_per_ref.entry(r.id).or_insert(Vec::new()).push(h);
         }
     }
+    stats.finalize();
     hits_per_ref
 }
 

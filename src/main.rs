@@ -34,6 +34,7 @@ use std::collections::hash_map::DefaultHasher;
 use crate::index::{Entry, Index};
 use crate::mers::{Match, AlignCand};
 use crate::hit::Hit;
+use crate::stats::Stats;
 use crate::chain::{Chain, kminmer_mapq};
 use rust_seq2kminmers::Kminmer;
 mod closures;
@@ -42,6 +43,7 @@ mod align;
 mod index;
 mod hit;
 mod chain;
+mod stats;
 
 type ThreadIdType = usize;
 pub struct Params {
@@ -222,6 +224,7 @@ fn main() {
     let queue_len = 200; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
+    Stats::init(threads, output_prefix.to_str().unwrap());
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
     closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);

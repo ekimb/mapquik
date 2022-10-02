@@ -75,8 +75,8 @@ impl Hit {
     // Check if this Hit can be extended by another query Kminmer matching a new reference Entry. 
     pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry, q_len: usize) -> bool {
         ((r.id == self.r_id) && ((q.rev != r.rc) == self.rc) && 
-        (self.rc && (p.offset - r.offset == 1)) || 
-        (!self.rc && (r.offset - p.offset == 1)))
+        (self.rc && (p.offset as i32 - r.offset as i32 == 1)) || 
+        (!self.rc && (r.offset as i32 - p.offset as i32 == 1)))
     }
 
     // Extend this Hit if it can be extended by the next Kminmer match.
