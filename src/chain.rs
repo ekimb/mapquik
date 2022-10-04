@@ -112,6 +112,7 @@ impl Chain {
     }
 
     pub fn check_hit_compatible(&self, h1: &Hit, h2: &Hit, g: usize) -> bool {
+        if h1 == h2 {return true;}
         let (u, v) = match h1.q_offset < h2.q_offset {
             true => (h1, h2),
             false => (h2, h1),
@@ -143,6 +144,63 @@ impl Chain {
         }
         self.hits = (0..len).filter(|i| !remove_hit_indices[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
 
+    }
+
+    pub fn colinear_hits_per_hit(&self, h: &Hit, g: usize) ->  Vec<usize> {
+        let col = (0..self.len()).filter(|i| self.check_hit_compatible(h, self.nth(*i), g)).collect::<Vec<usize>>();
+        col
+    }
+
+    pub fn check_colinear_hit_set(&self, col: &Vec<usize>, g: usize) -> (Vec<usize>, usize) {
+        let mut remove_h = HashMap::<usize, Vec<usize>>::new();
+        let mut remove_count : i32 = 0;
+        let mut to_remove = vec![false; self.len()];
+
+        for idx_i in 0..col.len() - 1 {
+            let i = col[idx_i];
+            let mut h_i = self.nth(i);
+            for idx_j in idx_i..col.len() {
+                let j = col[idx_j];
+                let mut h_j = self.nth(j);
+                if !self.check_hit_compatible(h_i, h_j, g) {
+                    remove_h.entry(i).or_insert(Vec::new()).push(j);
+                    remove_h.entry(j).or_insert(Vec::new()).push(i);
+                    remove_count += 1;
+                }
+            }
+        } 
+        if remove_count > 0 {
+            let mut remove_v = remove_h.into_iter().collect::<Vec<(usize, Vec<usize>)>>();
+            remove_v.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
+            remove_v.reverse();
+            for i in 0..remove_v.len() {
+                let (max_to_remove, max_v) = &remove_v[i];
+                //eprintln!("SAVED!{}!{}", remove_count, self.nth(*max_to_remove));
+                to_remove[*max_to_remove] = true;
+                remove_count -= max_v.len() as i32;
+                if remove_count <= 0 {break;}
+            }
+        }
+        let mut score = col.iter().map(|i| self.nth(*i).count).sum::<usize>();
+        let col_f = (0..col.len()).map(|idx_i| col[idx_i]).filter(|i| !to_remove[*i]).collect::<Vec<usize>>();
+        (col_f, score)
+    }
+
+    pub fn check_colinear(&mut self, g: usize) {
+        let len = self.len();
+        let mut max_col = Vec::<usize>::new();
+        let mut max_score = 0;
+        for i in 0..len {
+            let h_i = self.nth(i);
+            let col = self.colinear_hits_per_hit(h_i, g);
+            let (col_f, score) = self.check_colinear_hit_set(&col, g);
+            if score > max_score {
+                max_col = col_f;
+                max_score = score;
+            }
+        }
+        self.hits = max_col.iter().map(|i| self.nth(*i).clone()).collect::<Vec<Hit>>();
+        self.sort_by_q_offset();
     }
 
     pub fn filter_hits(&mut self, g: usize) {
@@ -268,6 +326,7 @@ impl Chain {
                 self.sort_by_q_offset();
                 self.filter_hits(params.g);
                 //self.filter_hits_max(params.g);
+                //self.check_colinear(params.g);
             }
             count = self.get_count(); 
             if (self.len() >= params.c) || (count >= params.s) {mapq = 60;}
