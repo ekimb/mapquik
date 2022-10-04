@@ -139,11 +139,11 @@ struct Opt {
     /// Only outputs chains of >= s matching seeds.
     #[structopt(short, long)]
     seed: Option<usize>,
-    /// Maximum nucleotide gap length
+    /// Maximum nucleotide gap length difference
     ///
     /// Allows chaining of hits with a gap difference of < g.
     #[structopt(short, long)]
-    gap: Option<usize>,
+    gap_diff: Option<usize>,
     /// Reference genome input
     ///
     /// Reference to be indexed and mapped to. 
@@ -156,6 +156,9 @@ struct Opt {
     threads: Option<usize>,
     #[structopt(short, long)]
     align: bool,
+    #[structopt(long)]
+    low_memory: bool,
+
 }
 
 fn main() {
@@ -166,10 +169,10 @@ fn main() {
     let mut output_prefix;
     let mut k : usize = 5;
     let mut l : usize = 31;
-    let mut f : usize = 1;
-    let mut c = 3;
-    let mut s = 10;
+    let mut c = 4;
+    let mut s = 11;
     let mut g = 2000;
+    let mut low_memory = opt.low_memory;
     let a = opt.align;
     let mut density : f64 = 0.01;
     let reference : bool = false;
@@ -199,7 +202,7 @@ fn main() {
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
     if opt.chain.is_some() {c = opt.chain.unwrap()} else {println!("Warning: Using default minimum chain length ({}).", c);}
     if opt.seed.is_some() {s = opt.seed.unwrap()} else {println!("Warning: Using default minimum number of matching seeds ({}).", s);}
-    if opt.gap.is_some() {g = opt.gap.unwrap()} else {println!("Warning: Using default maximum seed gap difference ({}).", g);}
+    if opt.gap_diff.is_some() {g = opt.gap_diff.unwrap()} else {println!("Warning: Using default maximum seed gap difference ({}).", g);}
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let debug = opt.debug;
@@ -220,7 +223,8 @@ fn main() {
     let ref_metadata = fs::metadata(&ref_filename).expect("Error opening reference file.");
     let file_size = metadata.len();
     let ref_threads = threads;
-    let ref_queue_len = threads;
+    let mut ref_queue_len = threads;
+    if low_memory {ref_queue_len = 1;}
     let queue_len = 200; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
