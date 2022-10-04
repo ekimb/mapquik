@@ -5,6 +5,7 @@ use crate::{Entry, Hit, Index, Kminmer, Match, Params};
 use std::collections::HashMap;
 use std::fmt;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Chain {
     hits: Vec<Hit>,
 }
@@ -113,6 +114,7 @@ impl Chain {
 
     pub fn check_hit_compatible(&self, h1: &Hit, h2: &Hit, g: usize) -> bool {
         if h1 == h2 {return true;}
+        if h1.rc != h2.rc {return false;}
         let (u, v) = match h1.q_offset < h2.q_offset {
             true => (h1, h2),
             false => (h2, h1),
@@ -139,15 +141,19 @@ impl Chain {
         let mut remove_hit_indices = vec![false; len];
         for i in 0..self.len() {
             let h_i = self.nth(i);
-            let h_c = self.hits.iter().filter(|hp| hp.r_start == h_i.r_start && hp.r_end == h_i.r_end).count();
+            let h_c = self.hits.iter().filter(|hp| hp.r_start == h_i.r_start && hp.r_end == h_i.r_end && hp.rc == h_i.rc).count();
             if h_c > 1 {remove_hit_indices[i] = true;}
         }
         self.hits = (0..len).filter(|i| !remove_hit_indices[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
 
     }
 
-    pub fn colinear_hits_per_hit(&self, h: &Hit, g: usize) ->  Vec<usize> {
+    pub fn colinear_idx_per_hit(&self, h: &Hit, g: usize) ->  Vec<usize> {
         let col = (0..self.len()).filter(|i| self.check_hit_compatible(h, self.nth(*i), g)).collect::<Vec<usize>>();
+        col
+    }
+    pub fn colinear_hits_per_hit(&self, h: &Hit, g: usize) ->  Vec<&Hit> {
+        let col = self.hits.iter().filter(|hp| self.check_hit_compatible(h, hp, g)).collect::<Vec<&Hit>>();
         col
     }
 
@@ -192,7 +198,7 @@ impl Chain {
         let mut max_score = 0;
         for i in 0..len {
             let h_i = self.nth(i);
-            let col = self.colinear_hits_per_hit(h_i, g);
+            let col = self.colinear_idx_per_hit(h_i, g);
             let (col_f, score) = self.check_colinear_hit_set(&col, g);
             if score > max_score {
                 max_col = col_f;
@@ -204,44 +210,53 @@ impl Chain {
     }
 
     pub fn filter_hits(&mut self, g: usize) {
-        let mut hits_to_remove_per_hit = Vec::<(Vec<bool>, usize, usize)>::new();
+
         let len = self.len();
-        for i in 0..len {
-            let mut h_i = self.nth(i);
-            let mut hits_to_remove = vec![true; len];
-            hits_to_remove[i] = false;
-            let mut hit_remove_count = len - 1;
-            let mut hits_count = h_i.count;
-            for j in 0..len {
-                if i == j {continue;}
-                let mut h_j = self.nth(j);
-                let b = self.check_hit_compatible(h_i, h_j, g);
-                if b {
-                    hits_to_remove[j] = false;
-                    hit_remove_count -= 1;
-                    hits_count += h_j.count;
-                }
+        if len == 0 {return;}
+        let max_chain = self.colinear_hits_per_hit(self.hits.iter().max_by(|a, b| self.colinear_hits_per_hit(a, g).iter().map(|h| h.count).sum::<usize>().cmp(&self.colinear_hits_per_hit(b, g).iter().map(|hp| hp.count).sum::<usize>())).unwrap(), g);
+        self.hits = max_chain.into_iter().cloned().collect();
+        self.sort_by_q_offset();
+    }
+
+    pub fn find_largest_two_hits(&self) -> (usize, usize) {
+        let mut max = 0;
+        let mut max_count = 0;
+        let mut second_max = 0;
+        let mut second_max_count = 0;
+        for i in 0..self.len() {
+            let count = self.nth(i).count;
+            if count > max_count {
+                second_max = max;
+                second_max_count = max_count;
+                max = i;
+                max_count = count;
+            } else if count > second_max_count {
+                second_max = i;
+                second_max_count = count;
             }
-            hits_to_remove_per_hit.push((hits_to_remove, hit_remove_count, hits_count));
         }
-        if hits_to_remove_per_hit.len() == 0 {self.hits = Vec::new(); return;}
-        let mut idx_to_remove = &hits_to_remove_per_hit.iter().max_by(|a, b| a.2.cmp(&b.2)).unwrap().0;
-        self.hits = (0..self.len()).filter(|i| !idx_to_remove[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
+        (max, second_max)
+    }
+
+    pub fn filter_hits_max_two(&mut self, g: usize) {
+        let len = self.len();
+        let (max, second_max) = self.find_largest_two_hits();
+        let max_chain = self.colinear_hits_per_hit(self.nth(max), g);
+        let max_count = max_chain.iter().map(|h| h.count).sum::<usize>();
+        self.hits = max_chain.into_iter().cloned().collect();
+        let second_max_chain = self.colinear_hits_per_hit(self.nth(second_max), g);
+        let second_max_count = second_max_chain.iter().map(|h| h.count).sum::<usize>();
+        if second_max_count > max_count {
+            self.hits = second_max_chain.into_iter().cloned().collect();
+        }
         self.sort_by_q_offset();
     }
 
     pub fn filter_hits_max(&mut self, g: usize) {
-        let mut hits_to_remove_per_hit = Vec::<(Vec<bool>, usize, usize)>::new();
         let len = self.len();
-        let (max_i, max) = self.hits.iter().enumerate().max_by(|a, b| a.1.count.cmp(&b.1.count)).unwrap();
-        let mut hits_to_remove = vec![true; len];
-        hits_to_remove[max_i] = false;
-        for i in 0..len {
-            let mut h_i = self.nth(i);
-            let b = self.check_hit_compatible(max, h_i, g);
-            if b {hits_to_remove[i] = false;}
-        }
-        self.hits = (0..len).filter(|i| !hits_to_remove[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
+        let (max, second_max) = self.find_largest_two_hits();
+        let max_chain = self.colinear_hits_per_hit(self.nth(max), g);
+        self.hits = max_chain.into_iter().cloned().collect();
         self.sort_by_q_offset();
     }
 
@@ -310,32 +325,9 @@ impl Chain {
     pub fn replace(&mut self, c: &Chain) {
         self.hits = c.hits().to_vec();
     }
-
-    // Calculates the MAPQ score for the Chain (by checking colinearity), sorts the Chain by the query k-min-mer offsets.
-
-    // MAPQ score defaults to 60 if the resulting Chain (the longest equivalence class) has length >= c or count >= s, and 0 otherwise.
-    pub fn partition(&mut self, params: &Params, q_len: usize) -> (usize, usize) {
-        let mut k = params.k; // This could be added to Params later.
-        let mut mapq = 0;
-        let mut count = 0;
-        let mut len = self.len();
-        if len >= 1 {
-            if len > 1 {
-                self.retain_unique();
-                if self.len() == 0 {return (mapq, count);}
-                self.sort_by_q_offset();
-                self.filter_hits(params.g);
-                //self.filter_hits_max(params.g);
-                //self.check_colinear(params.g);
-            }
-            count = self.get_count(); 
-            if (self.len() >= params.c) || (count >= params.s) {mapq = 60;}
-        }
-        (mapq, count)
-    }
     
     // Extends the first and last Hit locations in the Chain to the length of the query.
-    pub fn find_coords(&mut self, rc: bool, r_id: &str, r_len: usize, q_id: &str, q_len: usize, mapq: usize, first: &Hit, last: &Hit, score: usize) -> Match {
+    pub fn find_coords(&self, rc: bool, r_id: &str, r_len: usize, q_id: &str, q_len: usize, mapq: usize, first: &Hit, last: &Hit, score: usize) -> Match {
         let mut q_start = first.q_start;
         let mut q_end = last.q_end;
         let mut r_start = first.r_start;
@@ -397,19 +389,19 @@ impl Chain {
 
     // Outputs a Match object (see mers.rs for a definition).
     pub fn get_match(&mut self, r_id: &str, r_len: usize, q_id: &str, q_len: usize, params: &Params) -> Option<Match> {
-        if self.is_empty() {return None;}
-        let mut fwd = self.get_fwd();
-        let mut rc = self.get_rc();
-        let (fwd_mapq, fwd_score) = fwd.partition(&params, q_len);
-        let (rc_mapq, rc_score) = rc.partition(&params, q_len);
-        if fwd_score == rc_score && fwd_score == 0 {return None;}
-        let mut is_rc = (rc_score > fwd_score);
-        let (mapq, score, first, last) = match is_rc {
-            true => (rc_mapq, rc_score, rc.first(), rc.last()),
-            false => (fwd_mapq, fwd_score, fwd.first(), fwd.last()),
+        let mut len = self.len();
+        if len > 1 {
+            self.retain_unique();
+            self.filter_hits(params.g);
+        }
+        let len_f = self.len();
+        if len_f == 0 {return None;}
+        let score = self.get_count(); 
+        let mapq = match (len_f >= params.c) || (score >= params.s) {
+            true => 60,
+            false => 0,
         };
-
-        Some(self.find_coords(is_rc, r_id, r_len, q_id, q_len, mapq, first, last, score))
+        Some(self.find_coords(self.first().rc, r_id, r_len, q_id, q_len, mapq, self.first(), self.last(), score))
     }
 
     // Obtains query and reference intervals that are not covered by a Hit in the final Chain object (only for base-level alignment).
