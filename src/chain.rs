@@ -172,6 +172,21 @@ impl Chain {
         self.sort_by_q_offset();
     }
 
+    pub fn filter_hits_max(&mut self, g: usize) {
+        let mut hits_to_remove_per_hit = Vec::<(Vec<bool>, usize, usize)>::new();
+        let len = self.len();
+        let (max_i, max) = self.hits.iter().enumerate().max_by(|a, b| a.1.count.cmp(&b.1.count)).unwrap();
+        let mut hits_to_remove = vec![true; len];
+        hits_to_remove[max_i] = false;
+        for i in 0..len {
+            let mut h_i = self.nth(i);
+            let b = self.check_hit_compatible(max, h_i, g);
+            if b {hits_to_remove[i] = false;}
+        }
+        self.hits = (0..len).filter(|i| !hits_to_remove[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
+        self.sort_by_q_offset();
+    }
+
 
     pub fn fwd_gap_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, g: usize) -> bool {
        // (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
@@ -252,6 +267,7 @@ impl Chain {
                 if self.len() == 0 {return (mapq, count);}
                 self.sort_by_q_offset();
                 self.filter_hits(params.g);
+                //self.filter_hits_max(params.g);
             }
             count = self.get_count(); 
             if (self.len() >= params.c) || (count >= params.s) {mapq = 60;}
