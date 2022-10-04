@@ -11,6 +11,8 @@ export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/hifimap/target/release/
 #LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
 LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference chm13v2.0.oneline.fa -k 7 -l 31 -d 0.01 -p hifimap-7-31-0.01-1 --threads 10
 
+
+
 \time blend -t 10 -x map-hifi chm13v2.0.fa simulated-chm13v2.0-10X.fa > blend-sim10X.paf
 
 #[M::main] CMD: /pasteur/appa/homes/rchikhi/tools/BLEND/bin/blend -t 10 -x map-hifi chm13v2.0.fa simulated-chm13v2.0-10X.fa

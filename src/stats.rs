@@ -13,13 +13,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use fxhash::{hash32};
 
 static ENABLED: bool = false;
-static CML_NB_REF_LOCI: AtomicUsize = AtomicUsize::new(0);
 
 // some rust black magic to have multithreaded static file handle
 // from https://stackoverflow.com/a/72187853
 static mut STATS_FILE: MaybeUninit<Mutex<File>> = MaybeUninit::uninit();
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Default)]
 pub struct Stats {
     pub q_id: String,
     pub ref_loci: Vec<(u32,usize)>, // reference locis for analyzed read
@@ -52,38 +51,48 @@ impl Stats {
 
     // A new Stats object for a read
     pub fn new(q_id: &str) -> Self {
-        let mut s = Stats {
-            q_id: q_id.to_string(),
-            ref_loci: vec![]
-        };
-        s
+        if ENABLED
+        {
+            let mut s = Stats {
+                q_id: q_id.to_string(),
+                ref_loci: vec![]
+            };
+            s
+        }
+        else { Stats::default() }
     }
     
     // Add a new potential reference location
     pub fn add(&mut self, r: &Entry)
     {
-        self.ref_loci.push((hash32(&r.id),r.start));
+        if ENABLED
+        {
+            self.ref_loci.push((hash32(&r.id),r.start));
+        }
     }
 
     // Compute number of jumps and write to stats file
     pub fn finalize(&mut self)
     {
-        self.ref_loci.sort();
-        let mut prev: (u32, usize) = (0,0);
-        let dist = 48000; // expected minimal distance between unrelated regions (2x average read length)
-        let mut nb_loci = 0;
-        for (a,b) in &self.ref_loci
+        if ENABLED
         {
-            if *a != prev.0  || *b-prev.1 > dist
+            self.ref_loci.sort();
+            let mut prev: (u32, usize) = (0,0);
+            let dist = 48000; // expected minimal distance between unrelated regions (2x average read length)
+            let mut nb_loci = 0;
+            for (a,b) in &self.ref_loci
             {
-                nb_loci += 1;
+                if *a != prev.0  || *b-prev.1 > dist
+                {
+                    nb_loci += 1;
+                }
+                prev = (*a,*b);
             }
-            prev = (*a,*b);
-        }
-        let stats_line = format!("{}: {}",self.q_id,nb_loci);
-        unsafe
-        {
-        write!(STATS_FILE.assume_init_mut().lock().unwrap(), "{}\n", stats_line).expect("Error writing stats line.");
+            let stats_line = format!("{}: {}",self.q_id,nb_loci);
+            unsafe
+            {
+            write!(STATS_FILE.assume_init_mut().lock().unwrap(), "{}\n", stats_line).expect("Error writing stats line.");
+            }
         }
     }
 
