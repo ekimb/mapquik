@@ -12,7 +12,7 @@ use crate::{Entry};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use fxhash::{hash32};
 
-static ENABLED: bool = true;
+static ENABLED: bool = false;
 static CML_NB_REF_LOCI: AtomicUsize = AtomicUsize::new(0);
 
 // some rust black magic to have multithreaded static file handle
