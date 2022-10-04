@@ -91,7 +91,9 @@ impl Hit {
                     self.extend(query_it, index, &r, params, q_len)
                 }
             }
+            else {query_it.next();}
         }
+        else {query_it.next();}
     }
     
     // Calculate (approximately) the number of matching bases in this Kminmer match.
