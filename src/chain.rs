@@ -397,7 +397,7 @@ impl Chain {
         let len_f = self.len();
         if len_f == 0 {return None;}
         let score = self.get_count(); 
-        let mapq = match (len_f >= params.c) || (score >= params.s) {
+        let mapq = match (params.s != 0 && params.c != 0) && ((len_f >= params.c) || (score >= params.s)) {
             true => 60,
             false => 0,
         };
