@@ -8,7 +8,7 @@ use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use dashmap::{DashMap, DashSet};
-use rust_seq2kminmers::KminmersIterator;
+use rust_seq2kminmers::{KminmersIterator, FH};
 
 // A final Match: (Query ID, ref ID, query length, reference length, query start position, query end position, reference start position, reference end position, score, strand direction, MAPQ score)
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
@@ -26,7 +26,7 @@ pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index
     if inp_seq_raw.len() < l+k-1 {
         return 0;
     }
-    let density = params.density;
+    let density = params.density as FH;
     let iter = KminmersIterator::new(inp_seq_raw, l, k, density, params.use_hpc).unwrap();
     let mut count = 0;
     for kminmer in iter {
@@ -46,7 +46,7 @@ pub fn extract<'a>(seq_id: &str, inp_seq_raw: &'a [u8], params: &Params) -> Opti
     if inp_seq_raw.len() < l+k-1 {
         return None;
     }
-    let density = params.density;
+    let density = params.density as FH;
     return Some(KminmersIterator::new(inp_seq_raw, l, k, density, params.use_hpc).unwrap());
 }
 

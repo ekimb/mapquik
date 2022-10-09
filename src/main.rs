@@ -50,7 +50,7 @@ pub struct Params {
     k: usize,
     l: usize,
     density: f64,
-    use_hpc: bool, // Rayan to Baris: do we ever map in HPC anymore? let's delete that parameter
+    use_hpc: bool,
     debug: bool,
     a: bool,
     c: usize, // minimum chain length
