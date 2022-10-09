@@ -117,7 +117,7 @@ pub fn output_paf(all_matches: &DashSet<(String, Option<Match>)>, paf_file: &mut
         let id = &e.0;
         let v_opt = &e.1;
         if v_opt.is_none() {
-            write!(unmap_file, "{}\n", id).expect("Error writing line.");
+            //write!(unmap_file, "{}\n", id).expect("Error writing line.");
             continue;
         }
         let v = v_opt.as_ref().unwrap();
@@ -130,9 +130,9 @@ pub fn output_paf(all_matches: &DashSet<(String, Option<Match>)>, paf_file: &mut
         let score = v.8;
         let rc : &str = match v.9 {true => "-", false => "+"};
         let mapq = v.10;
-        if mapq <= 1 {
+       /* if mapq <= 1 {
             write!(unmap_file, "{}\n", id).expect("Error writing line.");
-        }
+        }*/
         let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n", v.0, query_len, q_start, q_end, rc, v.1, ref_len, r_start, r_end, score, ref_len, mapq);
         write!(paf_file, "{}", paf_line).expect("Error writing line.");
     }
