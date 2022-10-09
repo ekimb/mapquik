@@ -152,9 +152,16 @@ impl Chain {
         let col = (0..self.len()).filter(|i| self.check_hit_compatible(h, self.nth(*i), g)).collect::<Vec<usize>>();
         col
     }
-    pub fn colinear_hits_per_hit(&self, h: &Hit, g: usize) ->  Vec<&Hit> {
-        let col = self.hits.iter().filter(|hp| self.check_hit_compatible(h, hp, g)).collect::<Vec<&Hit>>();
-        col
+    pub fn colinear_hits_per_hit(&self, h: &Hit, g: usize) ->  (Vec<&Hit>, usize) {
+        let mut col = Vec::new();
+        let mut tot = 0;
+        for hp in self.hits.iter() {
+            if self.check_hit_compatible(h, hp, g) {
+                col.push(hp);
+                tot += hp.count;
+            }
+        }
+        (col, tot)
     }
 
     pub fn check_colinear_hit_set(&self, col: &Vec<usize>, g: usize) -> (Vec<usize>, usize) {
@@ -213,7 +220,17 @@ impl Chain {
 
         let len = self.len();
         if len == 0 {return;}
-        let max_chain = self.colinear_hits_per_hit(self.hits.iter().max_by(|a, b| self.colinear_hits_per_hit(a, g).iter().map(|h| h.count).sum::<usize>().cmp(&self.colinear_hits_per_hit(b, g).iter().map(|hp| hp.count).sum::<usize>())).unwrap(), g);
+        let mut max_chain = Vec::new();
+        let mut max_count = 0;
+        for i in 0..len {
+            let h = self.nth(i);
+            let (chain, count) = self.colinear_hits_per_hit(h, g);
+            if count > max_count {
+                max_chain = chain;
+                max_count = count;
+            }
+        }
+        //let max_chain = self.colinear_hits_per_hit(self.hits.iter().max_by(|a, b| self.colinear_hits_per_hit(a, g).iter().map(|h| h.count).sum::<usize>().cmp(&self.colinear_hits_per_hit(b, g).iter().map(|hp| hp.count).sum::<usize>())).unwrap(), g);
         self.hits = max_chain.into_iter().cloned().collect();
         self.sort_by_q_offset();
     }
@@ -241,10 +258,10 @@ impl Chain {
     pub fn filter_hits_max_two(&mut self, g: usize) {
         let len = self.len();
         let (max, second_max) = self.find_largest_two_hits();
-        let max_chain = self.colinear_hits_per_hit(self.nth(max), g);
+        let (max_chain, tot) = self.colinear_hits_per_hit(self.nth(max), g);
         let max_count = max_chain.iter().map(|h| h.count).sum::<usize>();
         self.hits = max_chain.into_iter().cloned().collect();
-        let second_max_chain = self.colinear_hits_per_hit(self.nth(second_max), g);
+        let (second_max_chain, second_tot) = self.colinear_hits_per_hit(self.nth(second_max), g);
         let second_max_count = second_max_chain.iter().map(|h| h.count).sum::<usize>();
         if second_max_count > max_count {
             self.hits = second_max_chain.into_iter().cloned().collect();
@@ -255,7 +272,7 @@ impl Chain {
     pub fn filter_hits_max(&mut self, g: usize) {
         let len = self.len();
         let (max, second_max) = self.find_largest_two_hits();
-        let max_chain = self.colinear_hits_per_hit(self.nth(max), g);
+        let (max_chain, tot) = self.colinear_hits_per_hit(self.nth(max), g);
         self.hits = max_chain.into_iter().cloned().collect();
         self.sort_by_q_offset();
     }
@@ -294,10 +311,10 @@ impl Chain {
     }
 
     pub fn fwd_inconsistent(&self, u_r_s: usize, v_r_s: usize, u_r_e: usize, v_r_e: usize) -> bool {
-        (self.fwd_start_inconsistent(u_r_s, v_r_s) || self.fwd_end_inconsistent(u_r_e, v_r_e))
+        (self.fwd_start_inconsistent(u_r_s, v_r_s)) //|| self.fwd_end_inconsistent(u_r_e, v_r_e))
     }
     pub fn rc_inconsistent(&self, u_r_s: usize, v_r_s: usize, u_r_e: usize, v_r_e: usize) -> bool {
-        (self.rc_start_inconsistent(u_r_s, v_r_s) || self.rc_end_inconsistent(u_r_e, v_r_e))
+        (self.rc_start_inconsistent(u_r_s, v_r_s)) //|| self.rc_end_inconsistent(u_r_e, v_r_e))
     }
 
     // Sort the Chain by the query k-min-mer offsets of the Hits.
@@ -391,7 +408,7 @@ impl Chain {
     pub fn get_match(&mut self, r_id: &str, r_len: usize, q_id: &str, q_len: usize, params: &Params) -> Option<Match> {
         let mut len = self.len();
         if len > 1 {
-            self.retain_unique();
+            //self.retain_unique();
             self.filter_hits(params.g);
         }
         let len_f = self.len();
