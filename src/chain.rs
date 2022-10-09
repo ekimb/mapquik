@@ -329,10 +329,10 @@ impl Chain {
     // Extends the first and last Hit locations in the Chain to the length of the query.
     pub fn find_coords(&self, rc: bool, r_id: &str, r_len: usize, q_id: &str, q_len: usize, mapq: usize, first: &Hit, last: &Hit, score: usize) -> Match {
         let mut q_start = first.q_start;
-        let mut q_end = last.q_end;
+        let mut q_end = last.q_end - 1;
         let mut r_start = first.r_start;
         let mut r_end = last.r_end;
-        if rc {
+        if rc && self.len() > 1 {
             r_start = last.r_end;
             r_end = first.r_start;
         }
