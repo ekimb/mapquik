@@ -47,6 +47,7 @@ rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
 libwfa = { git = "https://github.com/rchikhi/rs-wfa" }
 #libwfa = "0.1"
 rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
+#rust-seq2kminmers = { path = "/pasteur/appa/homes/rchikhi/tools/rust-seq2kminmers" }
 fxhash = "0.2.1"
 
 [profile.dev]
