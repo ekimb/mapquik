@@ -348,15 +348,15 @@ impl Chain {
         let mut q_start = first.q_start;
         let mut q_end = last.q_end - 1;
         let mut r_start = first.r_start;
-        let mut r_end = last.r_end;
+        let mut r_end = last.r_end - 1;
         if rc && self.len() > 1 {
-            r_start = last.r_end;
-            r_end = first.r_start;
+            r_start = last.r_start;
+            r_end = first.r_end;
         }
-        let mut final_r_start = 0;
-        let mut final_r_end = 0;
-        let mut final_q_start = 0;
-        let mut final_q_end = 0;
+        let mut final_r_start = r_start;
+        let mut final_r_end = r_end;
+        let mut final_q_start = q_start;
+        let mut final_q_end = q_end;
         let mut exc_s = 0;
         let mut exc_e = 0;
 
