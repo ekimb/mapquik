@@ -1,15 +1,9 @@
 /target
 **/*.rs.bk
-*.ec_data
-*.sequences
-*.gfa
 *.fa
 *.fa.fai
-*.uhs
-*.lcp
-*.lcp.gz
-small-example/*
 *.fasta
+*.fastq
 src/trash.rs
 ref/
 *.graphml
@@ -38,3 +32,7 @@ experiments/chm13/blend
 utils/
 example-ava/
 example-map/
+*.merylIndex
+*.merylData
+*.read_stats
+heaptrack*
