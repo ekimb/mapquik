@@ -36,7 +36,6 @@ use crate::mers::{Match, AlignCand};
 use crate::hit::Hit;
 use crate::stats::Stats;
 use crate::chain::{Chain, kminmer_mapq};
-use rust_seq2kminmers::Kminmer;
 mod closures;
 mod mers;
 mod align;
@@ -176,7 +175,12 @@ fn main() {
     let a = opt.align;
     let mut density : f64 = 0.01;
     let reference : bool = false;
-    let mut use_hpc : bool = true; // hardcoded to true
+    let mut use_hpc : bool = false; // hardcoded to true
+    if use_hpc {
+        println!("Using HPC ntHash");
+    } else {
+        println!("Using SIMD ntHash");
+    }
     let mut threads : usize = 8;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
@@ -185,13 +189,13 @@ fn main() {
     let mut reads_are_fasta : bool = false;
     let mut ref_is_fasta    : bool = false;
     let filename_str = filename.to_str().unwrap();
-    if filename_str.contains(".fasta.") || filename_str.contains(".fa.") || filename_str.ends_with(".fa") || filename_str.ends_with(".fasta") { // not so robust but will have to do for now
+    if filename_str.contains(".fasta.") || filename_str.ends_with(".fna") || filename_str.contains(".fna.") || filename_str.contains(".fa.") || filename_str.ends_with(".fa") || filename_str.ends_with(".fasta") { // not so robust but will have to do for now
         reads_are_fasta = true;
         println!("Input file: {}", filename_str);
         println!("Format: FASTA");
     }
     let ref_filename_str = ref_filename.to_str().unwrap();
-    if ref_filename_str.contains(".fasta.") || ref_filename_str.contains(".fa.") || ref_filename_str.ends_with(".fa") || ref_filename_str.ends_with(".fasta") { // not so robust but will have to do for now
+    if ref_filename_str.contains(".fasta.") || ref_filename_str.ends_with(".fna") || ref_filename_str.contains(".fna.") || ref_filename_str.contains(".fa.") || ref_filename_str.ends_with(".fa") || ref_filename_str.ends_with(".fasta") { // not so robust but will have to do for now
         ref_is_fasta = true;
         println!("Reference file: {}", ref_filename_str);
         println!("Format: FASTA");

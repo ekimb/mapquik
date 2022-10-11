@@ -1,7 +1,7 @@
 // chain.rs
 // Contains the "Chain" struct, which is a Vec of Hits, and various necessary operations to filter out bad Hits.
 
-use crate::{Entry, Hit, Index, Kminmer, Match, Params};
+use crate::{Entry, Hit, Index, Match, Params};
 use std::collections::HashMap;
 use std::fmt;
 

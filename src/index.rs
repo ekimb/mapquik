@@ -1,7 +1,6 @@
 // index.rs
 // Contains the "Index" and "Entry" structs, which describe how reference k-min-mers are stored. 
 
-use crate::Kminmer;
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::hash::BuildHasherDefault;

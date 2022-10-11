@@ -1,14 +1,14 @@
 // mers.rs
 // Contains the "Match", "Offset", and "AlignCand" types, along with driver functions for obtaining reference and query k-min-mers, Hits, Chains, and final coordinates.
 
-use crate::{Chain, Entry, Hit, File, Kminmer, Index, Params, kminmer_mapq, Stats};
+use crate::{Chain, Entry, Hit, File, Index, Params, kminmer_mapq, Stats};
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::io::Write;
 use dashmap::{DashMap, DashSet};
-use rust_seq2kminmers::{KminmersIterator, FH, HashMode};
+use rust_seq2kminmers::{KminmersIterator, FH, HashMode, Kminmer};
 
 // A final Match: (Query ID, ref ID, query length, reference length, query start position, query end position, reference start position, reference end position, score, strand direction, MAPQ score)
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
@@ -33,7 +33,7 @@ pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index
     for kminmer in iter {
         //println!("{:?}", kminmer);
         // Add a reference k-min-mer to the Index.
-        mers_index.add(kminmer.get_hash_u64(), seq_id, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
+        mers_index.add(kminmer.get_hash(), seq_id, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
         count += 1;
         //eprintln!("{}\r", count);
     }
@@ -48,7 +48,7 @@ pub fn extract<'a>(seq_id: &str, inp_seq_raw: &'a [u8], params: &Params) -> Opti
         return None;
     }
     let density = params.density as FH;
-    let mode = if params.use_hpc {HashMode::Hpc} else {HashMode::Regular};
+    let mode = if params.use_hpc {HashMode::Hpc} else {HashMode::Simd};
     return Some(KminmersIterator::new(inp_seq_raw, l, k, density, mode).unwrap());
 }
 
@@ -61,7 +61,7 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
     let mut stats = Stats::new(query_id);
     let mut query_it = query_it_raw.as_mut().unwrap().peekable();
     while let Some(q) = query_it.next() {
-        let re = index.get(&q.get_hash_u64());
+        let re = index.get(&q.get_hash());
         if let Some(r) = re {
             let mut h = Hit::new(query_id, &q, &r, params);
             h.extend(&mut query_it, index, &r, params, q_len);
