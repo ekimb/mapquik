@@ -36,6 +36,7 @@ use crate::mers::{Match, AlignCand};
 use crate::hit::Hit;
 use crate::stats::Stats;
 use crate::chain::{Chain, kminmer_mapq};
+use rust_seq2kminmers::{KminmerType, Kminmer, H, FH};
 mod closures;
 mod mers;
 mod align;
@@ -48,7 +49,7 @@ type ThreadIdType = usize;
 pub struct Params {
     k: usize,
     l: usize,
-    density: f64,
+    density: FH,
     use_hpc: bool,
     debug: bool,
     a: bool,
@@ -127,7 +128,7 @@ struct Opt {
     /// fraction of l-mers that will be selected as
     /// minimizers from a read.
     #[structopt(short, long)]
-    density: Option<f64>,
+    density: Option<FH>,
     /// Minimum chain length
     ///
     /// Only outputs chains of length >= c.
@@ -173,7 +174,7 @@ fn main() {
     let mut g = 2000;
     let mut low_memory = opt.low_memory;
     let a = opt.align;
-    let mut density : f64 = 0.01;
+    let mut density : FH = 0.01;
     let reference : bool = false;
     let mut use_hpc : bool = false; // hardcoded to true
     if use_hpc {

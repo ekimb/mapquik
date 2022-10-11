@@ -7,6 +7,7 @@ use std::fmt;
 use rust_seq2kminmers::{KminmersIterator, KminmerHash, KminmerType as Kminmer, Kminmer as KminmerTrait};
 use std::iter::Peekable;
 
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hit {
     pub q_id: String, // Query ID
@@ -82,6 +83,7 @@ impl Hit {
     // Extend this Hit if it can be extended by the next Kminmer match.
     pub fn extend(&mut self, query_it: &mut Peekable<&mut KminmersIterator>, index: &Index, p: &Entry, params: &Params, q_len: usize) {
         if let Some(q) = query_it.peek() {
+            if q.end == 0 {query_it.next(); return;}
             let re = index.get(&q.get_hash());
             //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
             if let Some(r) = re {
