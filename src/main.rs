@@ -176,7 +176,7 @@ fn main() {
     let a = opt.align;
     let mut density : FH = 0.01;
     let reference : bool = false;
-    let mut use_hpc : bool = false; // hardcoded to true
+    let mut use_hpc : bool = true; // hardcoded to true
     if use_hpc {
         println!("Using HPC ntHash");
     } else {

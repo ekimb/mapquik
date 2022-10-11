@@ -4,7 +4,7 @@
 use crate::{Entry, Index, Params};
 use std::cmp;
 use std::fmt;
-use rust_seq2kminmers::{KminmersIterator, KminmerHash, KminmerType as Kminmer, Kminmer as KminmerTrait};
+use rust_seq2kminmers::{KminmersIterator, KminmerType as Kminmer, Kminmer as KminmerTrait};
 use std::iter::Peekable;
 
 
