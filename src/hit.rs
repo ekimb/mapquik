@@ -1,11 +1,12 @@
 // hit.rs
 // Contains the "Hit" struct, which represents a collection of consecutive k-min-mer matches from query to reference.
 
-use crate::{Entry, Index, Kminmer, Params};
+use crate::{Entry, Index, Kminmer, KminmerType, Params};
 use std::cmp;
 use std::fmt;
 use rust_seq2kminmers::KminmersIterator;
 use std::iter::Peekable;
+
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hit {
@@ -24,7 +25,7 @@ pub struct Hit {
 impl Hit {
     
     // A new Hit object from a query Kminmer matching a reference Entry.
-    pub fn new(q_id: &str, q: &Kminmer, r: &Entry, params: &Params) -> Self {
+    pub fn new(q_id: &str, q: &KminmerType, r: &Entry, params: &Params) -> Self {
         let mut h = Hit {
             q_id: q_id.to_string(),
             r_id: r.id.to_string(),
@@ -62,7 +63,7 @@ impl Hit {
     }
 
     // Update the Hit start and end locations, count, and score.
-    pub fn update(&mut self, q: &Kminmer, r: &Entry, params: &Params) {
+    pub fn update(&mut self, q: &KminmerType, r: &Entry, params: &Params) {
         //let new_score_add = self.score_extension(q, r, params);
         if self.rc {self.r_start = r.start;}
         else {self.r_end = r.end;}
@@ -73,7 +74,7 @@ impl Hit {
     }
 
     // Check if this Hit can be extended by another query Kminmer matching a new reference Entry. 
-    pub fn check(&self, q: &Kminmer, r: &Entry, p: &Entry, q_len: usize) -> bool {
+    pub fn check(&self, q: &KminmerType, r: &Entry, p: &Entry, q_len: usize) -> bool {
         ((r.id == self.r_id) && ((q.rev != r.rc) == self.rc) && 
         (self.rc && (p.offset as i32 - r.offset as i32 == 1)) || 
         (!self.rc && (r.offset as i32 - p.offset as i32 == 1)))
@@ -82,7 +83,8 @@ impl Hit {
     // Extend this Hit if it can be extended by the next Kminmer match.
     pub fn extend(&mut self, query_it: &mut Peekable<&mut KminmersIterator>, index: &Index, p: &Entry, params: &Params, q_len: usize) {
         if let Some(q) = query_it.peek() {
-            let re = index.get(&q.get_hash_u64());
+            if q.end == 0 {query_it.next(); return;}
+            let re = index.get(&q.get_hash());
             //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
             if let Some(r) = re {
                 if self.check(&q, &r, p, q_len) {
@@ -97,12 +99,12 @@ impl Hit {
     }
     
     // Calculate (approximately) the number of matching bases in this Kminmer match.
-    pub fn score_match(&self, q: &Kminmer, r: &Entry, params: &Params) -> usize {
+    pub fn score_match(&self, q: &KminmerType, r: &Entry, params: &Params) -> usize {
         cmp::min(cmp::min((q.end as i32 - q.start as i32).abs() as usize, (r.start as i32 - r.end as i32).abs() as usize), (params.k * params.l))
     }
 
     // Calculate (approximately) the number of matching bases if the Kminmer match is extended.
-    pub fn score_extension(&self, q: &Kminmer, r: &Entry, params: &Params) -> usize {
+    pub fn score_extension(&self, q: &KminmerType, r: &Entry, params: &Params) -> usize {
         cmp::min(cmp::min((q.end as i32 - q.start as i32).abs() as usize, (r.start as i32 - r.end as i32).abs() as usize),  params.l)
     }
 

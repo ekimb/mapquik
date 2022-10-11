@@ -1,7 +1,7 @@
 // index.rs
 // Contains the "Index" and "Entry" structs, which describe how reference k-min-mers are stored. 
 
-use crate::Kminmer;
+use crate::{Kminmer, KminmerType, H};
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::hash::BuildHasherDefault;
@@ -47,7 +47,7 @@ impl Entry {
 
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
-    pub index: Arc<DashMap<u64, Entry, BuildHasherDefault<FxHasher64>>>
+    pub index: Arc<DashMap<H, Entry, BuildHasherDefault<FxHasher64>>>
 }
 impl Index {
 
@@ -59,7 +59,7 @@ impl Index {
 
 
     // Return the Entry associated with the k-min-mer hash h, or None if none.
-    pub fn get(&self, h: &u64) -> Option<Entry> {
+    pub fn get(&self, h: &H) -> Option<Entry> {
         let e = self.index.get(h);
         if let Some(r) = e {
             if !r.is_empty() {
@@ -69,8 +69,12 @@ impl Index {
         None
     }
 
+    pub fn get_count(&self) -> usize {
+        self.index.iter().fold(0, |acc, x| (if !x.value().is_empty() {return acc + 1;} else {return acc;}))
+    }
+
     // Add an Entry to the Index. If an Entry for the hash h already exists, insert None to prevent duplicates.
-    pub fn add(&self, h: u64, id: &str, start: usize, end: usize, offset: usize, rc: bool) {
+    pub fn add(&self, h: H, id: &str, start: usize, end: usize, offset: usize, rc: bool) {
         let e = self.index.insert(h, Entry::new(id, start, end, offset, rc));
         if e.is_some() {self.index.insert(h, Entry::empty());}
     }
