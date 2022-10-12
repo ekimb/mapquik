@@ -1,7 +1,7 @@
 // index.rs
 // Contains the "Index" and "Entry" structs, which describe how reference k-min-mers are stored. 
 
-use crate::{H};
+use crate::{KH};
 use dashmap::DashMap;
 use std::sync::Arc;
 use std::hash::BuildHasherDefault;
@@ -11,7 +11,7 @@ use core::hash::Hasher;
 // from https://github.com/Manishearth/trashmap/blob/master/src/lib.rs
 #[derive(Default)]
 pub struct KnownHasher {
-    hash: Option<H>,
+    hash: Option<KH>,
 }
 
 impl Hasher for KnownHasher {
@@ -23,14 +23,14 @@ impl Hasher for KnownHasher {
 #[inline]
     fn write_u32(&mut self, i: u32) {
         debug_assert!(self.hash.is_none());
-        self.hash = Some(i as H);
+        self.hash = Some(i as KH);
     }
 
 
     #[inline]
     fn write_u64(&mut self, i: u64) {
         debug_assert!(self.hash.is_none());
-        self.hash = Some(i as H);
+        self.hash = Some(i as KH);
     }
 
     #[inline]
@@ -79,7 +79,7 @@ impl Entry {
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
     //pub index: Arc<DashMap<H, Entry, BuildHasherDefault<FxHasher64>>>
-    pub index: Arc<DashMap<H, Entry, BuildHasherDefault<KnownHasher>>>
+    pub index: Arc<DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>>
 }
 impl Index {
 
@@ -87,13 +87,13 @@ impl Index {
     pub fn new() -> Self {
         //let hasher = BuildHasherDefault::<FxHasher64>::default();
         let hasher = BuildHasherDefault::<KnownHasher>::default();
-        Index {index: Arc::new(DashMap::with_capacity_and_hasher(0/* number of kminmers in CHM13V2 with default params*/,
+        Index {index: Arc::new(DashMap::with_capacity_and_hasher(39821990/* number of kminmers in CHM13V2 with default params*/,
                                                                              hasher))}
     }
 
 
     // Return the Entry associated with the k-min-mer hash h, or None if none.
-    pub fn get(&self, h: &H) -> Option<Entry> {
+    pub fn get(&self, h: &KH) -> Option<Entry> {
         let e = self.index.get(h);
         if let Some(r) = e {
             if !r.is_empty() {
@@ -108,7 +108,7 @@ impl Index {
     }
 
     // Add an Entry to the Index. If an Entry for the hash h already exists, insert None to prevent duplicates.
-    pub fn add(&self, h: H, id: &str, start: usize, end: usize, offset: usize, rc: bool) {
+    pub fn add(&self, h: KH, id: &str, start: usize, end: usize, offset: usize, rc: bool) {
         let e = self.index.insert(h, Entry::new(id, start, end, offset, rc));
         if e.is_some() {self.index.insert(h, Entry::empty());}
     }

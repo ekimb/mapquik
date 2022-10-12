@@ -36,7 +36,7 @@ use crate::mers::{Match, AlignCand};
 use crate::hit::Hit;
 use crate::stats::Stats;
 use crate::chain::{Chain, kminmer_mapq};
-use rust_seq2kminmers::{KminmerType, Kminmer, H, FH};
+use rust_seq2kminmers::{KminmerType, Kminmer, H, FH, KH};
 mod closures;
 mod mers;
 mod align;
