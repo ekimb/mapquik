@@ -6,7 +6,31 @@ use dashmap::DashMap;
 use std::sync::Arc;
 use std::hash::BuildHasherDefault;
 use fxhash::FxHasher64;
+use core::hash::Hasher;
 
+// from https://github.com/Manishearth/trashmap/blob/master/src/lib.rs
+#[derive(Default)]
+pub struct KnownHasher {
+    hash: Option<u64>,
+}
+
+impl Hasher for KnownHasher {
+    #[inline]
+    fn write(&mut self, _: &[u8]) {
+        panic!("KnownHasher must be called with known u64 hash values")
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        debug_assert!(self.hash.is_none());
+        self.hash = Some(i);
+    }
+
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.hash.expect("Nothing was hashed") as u64
+    }
+}
 
 // An Entry object holds information for a reference k-min-mer without storing the minimizer hashes themselves.
 #[derive(Clone, Debug, PartialEq)]
@@ -47,14 +71,17 @@ impl Entry {
 
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
-    pub index: Arc<DashMap<H, Entry, BuildHasherDefault<FxHasher64>>>
+    //pub index: Arc<DashMap<H, Entry, BuildHasherDefault<FxHasher64>>>
+    pub index: Arc<DashMap<H, Entry, BuildHasherDefault<KnownHasher>>>
 }
 impl Index {
 
     // Create a new Index.
     pub fn new() -> Self {
-        let hasher = BuildHasherDefault::<FxHasher64>::default();
-        Index {index: Arc::new(DashMap::with_hasher(hasher))}
+        //let hasher = BuildHasherDefault::<FxHasher64>::default();
+        let hasher = BuildHasherDefault::<KnownHasher>::default();
+        Index {index: Arc::new(DashMap::with_capacity_and_hasher(39821990 /* number of kminmers in CHM13V2 with default params*/,
+                                                                             hasher))}
     }
 
 
