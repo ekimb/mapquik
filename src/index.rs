@@ -23,14 +23,14 @@ impl Hasher for KnownHasher {
 #[inline]
     fn write_u32(&mut self, i: u32) {
         debug_assert!(self.hash.is_none());
-        self.hash = Some(i);
+        self.hash = Some(i as H);
     }
 
 
     #[inline]
     fn write_u64(&mut self, i: u64) {
         debug_assert!(self.hash.is_none());
-        self.hash = Some(i as u32);
+        self.hash = Some(i as H);
     }
 
     #[inline]
@@ -87,7 +87,7 @@ impl Index {
     pub fn new() -> Self {
         //let hasher = BuildHasherDefault::<FxHasher64>::default();
         let hasher = BuildHasherDefault::<KnownHasher>::default();
-        Index {index: Arc::new(DashMap::with_capacity_and_hasher(39821990 /* number of kminmers in CHM13V2 with default params*/,
+        Index {index: Arc::new(DashMap::with_capacity_and_hasher(0/* number of kminmers in CHM13V2 with default params*/,
                                                                              hasher))}
     }
 
