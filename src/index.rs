@@ -11,7 +11,7 @@ use core::hash::Hasher;
 // from https://github.com/Manishearth/trashmap/blob/master/src/lib.rs
 #[derive(Default)]
 pub struct KnownHasher {
-    hash: Option<u64>,
+    hash: Option<H>,
 }
 
 impl Hasher for KnownHasher {
@@ -30,7 +30,7 @@ impl Hasher for KnownHasher {
     #[inline]
     fn write_u64(&mut self, i: u64) {
         debug_assert!(self.hash.is_none());
-        self.hash = Some(i);
+        self.hash = Some(i as u32);
     }
 
     #[inline]
