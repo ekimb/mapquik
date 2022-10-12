@@ -342,70 +342,11 @@ impl Chain {
     pub fn replace(&mut self, c: &Chain) {
         self.hits = c.hits().to_vec();
     }
-    
-    // Extends the first and last Hit locations in the Chain to the length of the query.
-    pub fn find_coords(&self, rc: bool, r_id: &str, r_len: usize, q_id: &str, q_len: usize, mapq: usize, first: &Hit, last: &Hit, score: usize) -> Match {
-        let mut q_start = first.q_start;
-        let mut q_end = last.q_end - 1;
-        let mut r_start = first.r_start;
-        let mut r_end = last.r_end - 1;
-        if rc && self.len() > 1 {
-            r_start = last.r_start;
-            r_end = first.r_end;
-        }
-        let mut final_r_start = r_start;
-        let mut final_r_end = r_end;
-        let mut final_q_start = q_start;
-        let mut final_q_end = q_end;
-        let mut exc_s = 0;
-        let mut exc_e = 0;
-
-        if !rc {
-            if r_start >= q_start {
-                final_r_start = r_start - q_start;
-                exc_s = q_start;
-            }
-            else {
-                final_r_start = 0;
-                exc_s = r_start;
-            }
-            if r_end + (q_len - q_end - 1) <= r_len - 1 {
-                final_r_end = r_end + (q_len - q_end - 1);
-                exc_e = q_len - q_end - 1;
-            }
-            else {
-                final_r_end = r_len - 1;
-                exc_e = r_len - r_end - 1;
-            }
-        }
-        else {
-            if r_end + q_start <= r_len - 1 {
-                final_r_end = r_end + q_start;
-                exc_s = q_start;
-            }
-            else {
-                final_r_end = r_len - 1;
-                exc_s = r_len - r_end - 1;
-            }
-            if r_start >= (q_len - q_end - 1) {
-                final_r_start = r_start - (q_len - q_end - 1);
-                exc_e = q_len - q_end - 1;
-            }
-            else {
-                final_r_start = 0;
-                exc_e = r_start;
-            }
-        }
-        final_q_start = q_start - exc_s;
-        final_q_end = q_end + exc_e;
-        let m = (q_id.to_string(), r_id.to_string(), q_len, r_len, final_q_start, final_q_end, final_r_start, final_r_end, score, rc, mapq);
-        m
-    }
 
     // Wrapper function that filters bad Hits, checks for consistency, and obtains final coordinates.
 
     // Outputs a Match object (see mers.rs for a definition).
-    pub fn get_match(&mut self, r_id: &str, r_len: usize, q_id: &str, q_len: usize, params: &Params) -> Option<Match> {
+    pub fn get_match(&mut self, params: &Params) -> Option<(bool, usize, usize, usize, usize, usize, usize)> {
         let mut len = self.len();
         if len > 1 {
             //self.retain_unique();
@@ -418,7 +359,13 @@ impl Chain {
             true => 60,
             false => 0,
         };
-        Some(self.find_coords(self.first().rc, r_id, r_len, q_id, q_len, mapq, self.first(), self.last(), score))
+        let first = self.first();
+        let last = self.last();
+        let rc = first.rc;
+        return match rc && self.len() > 1 {
+            true => Some((rc, first.q_start, last.q_end - 1, last.r_start, first.r_end - 1, score, mapq)),
+            false => Some((rc, first.q_start, last.q_end - 1, first.r_start, last.r_end - 1, score, mapq)),
+        };
     }
 
     // Obtains query and reference intervals that are not covered by a Hit in the final Chain object (only for base-level alignment).

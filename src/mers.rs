@@ -13,6 +13,11 @@ use rust_seq2kminmers::{KminmersIterator, FH, HashMode, Kminmer};
 // A final Match: (Query ID, ref ID, query length, reference length, query start position, query end position, reference start position, reference end position, score, strand direction, MAPQ score)
 pub type Match = (String, String, usize, usize, usize, usize, usize, usize, usize, bool, usize);
 
+
+pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
+
+pub type PseudoChainCoordsTuple<'a> = (&'a String, (bool, usize, usize, usize, usize, usize, usize));
+
 // An interval that needs to be aligned.
 pub type Offset = (usize, usize);
 
@@ -75,22 +80,21 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
 
 
 // Extract raw Vecs of Hits, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
-pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &Index, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<Match> {
+pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &Index, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
     let mut kminmers = extract(q_id, q_str, params);
     let hits_per_ref = chain_hits(q_id, &mut kminmers, mers_index, params, q_len);
-    let mut final_matches = Vec::<Match>::new();    
+    let mut all_pseudocoords = Vec::<PseudoChainCoordsTuple>::new();    
     for e in hits_per_ref.iter() {
         let (r_id, hits_raw) = e;
-        let r_len = *ref_lens.get(r_id).unwrap();
         let mut c = Chain::new(&hits_raw);
-        let mut v = c.get_match(&r_id, r_len, q_id, q_len, params);
-        if let Some(m) = v {final_matches.push(m);}
+        let mut tp = c.get_match(&params);
+        if let Some(t) = tp {all_pseudocoords.push((r_id, t));}
     }
-    let matches_len = final_matches.len();
-    return match matches_len {
+    let coords_count = all_pseudocoords.len();
+    return match coords_count {
         0 => None,
-        1 => Some(final_matches[0].clone()),
-        _ => determine_best_match(&mut final_matches, matches_len),
+        1 => Some(find_coords(q_id, q_len, ref_lens,  &all_pseudocoords[0])),
+        _ => determine_best_match(q_id, q_len, ref_lens, &all_pseudocoords, coords_count),
     };
        /* let (v, c) = &final_matches[0];
         if params.a {
@@ -103,13 +107,98 @@ pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<Stri
         }*/
 }
 
-pub fn determine_best_match(matches: &mut Vec<Match>, matches_len: usize) -> Option<Match> {
-    matches.sort_by(|a, b| a.8.cmp(&b.8));
-    let mut max_score = &matches[matches_len - 1].8;
-    return match max_score == &matches[matches_len - 2].8 {
-        true => None,
-        false => Some(matches[matches_len - 1].clone()),
-    };
+pub fn determine_best_match(q_id: &str, q_len: usize, ref_lens: &DashMap<String, usize>, all_pseudocoords: &Vec<PseudoChainCoordsTuple>, coords_count: usize) -> Option<String> {
+    let (max_i, next_max_i, max_count, next_max_count, max_mapq, next_max_mapq) = find_largest_two_chains(all_pseudocoords, coords_count);
+    if max_count == next_max_count {
+        if max_mapq == next_max_mapq {return None;}
+        else if max_mapq > next_max_mapq {return Some(find_coords(q_id, q_len, ref_lens, &all_pseudocoords[max_i]));}
+        else {return Some(find_coords(q_id, q_len, ref_lens, &all_pseudocoords[next_max_i]));}
+    }
+    else {
+        assert!(max_count > next_max_count);
+        return Some(find_coords(q_id, q_len, ref_lens, &all_pseudocoords[max_i]));
+    }
+}
+
+pub fn find_largest_two_chains(all_pseudocoords: &Vec<PseudoChainCoordsTuple>, coords_count: usize) -> (usize, usize, usize, usize, usize, usize) {
+    let mut max = 0;
+    let mut max_count = 0;
+    let mut second_max = 0;
+    let mut second_max_count = 0;
+    let mut max_mapq = 0;
+    let mut second_max_mapq = 0;
+    for i in 0..coords_count {
+        let (r_id, coord) = all_pseudocoords[i];
+        let count = coord.5;
+        let mapq = coord.6;
+        if count > max_count {
+            second_max = max;
+            second_max_count = max_count;
+            second_max_mapq = max_mapq;
+            max = i;
+            max_count = count;
+            max_mapq = mapq;
+        } else if count > second_max_count {
+            second_max = i;
+            second_max_count = count;
+            second_max_mapq = mapq;
+        }
+    }
+    (max, second_max, max_count, second_max_count, max_mapq, second_max_mapq)
+}
+
+pub fn find_coords(q_id: &str, q_len: usize, ref_lens: &DashMap<String, usize>, t: &PseudoChainCoordsTuple) -> String {
+    let (r_id, coords) = *t;
+    let r_len = *ref_lens.get(r_id).unwrap();
+    let (rc, q_start, q_end, r_start, r_end, score, mapq) = coords;
+    let mut final_r_start = r_start;
+    let mut final_r_end = r_end;
+    let mut final_q_start = q_start;
+    let mut final_q_end = q_end;
+    let mut exc_s = 0;
+    let mut exc_e = 0;
+
+    if !rc {
+        if r_start >= q_start {
+            final_r_start = r_start - q_start;
+            exc_s = q_start;
+        }
+        else {
+            final_r_start = 0;
+            exc_s = r_start;
+        }
+        if r_end + (q_len - q_end - 1) <= r_len - 1 {
+            final_r_end = r_end + (q_len - q_end - 1);
+            exc_e = q_len - q_end - 1;
+        }
+        else {
+            final_r_end = r_len - 1;
+            exc_e = r_len - r_end - 1;
+        }
+    }
+    else {
+        if r_end + q_start <= r_len - 1 {
+            final_r_end = r_end + q_start;
+            exc_s = q_start;
+        }
+        else {
+            final_r_end = r_len - 1;
+            exc_s = r_len - r_end - 1;
+        }
+        if r_start >= (q_len - q_end - 1) {
+            final_r_start = r_start - (q_len - q_end - 1);
+            exc_e = q_len - q_end - 1;
+        }
+        else {
+            final_r_start = 0;
+            exc_e = r_start;
+        }
+    }
+    final_q_start = q_start - exc_s;
+    final_q_end = q_end + exc_e;
+    let rc_s : &str = match rc {true => "-", false => "+"};
+    let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", q_id, q_len, final_q_start, final_q_end, rc_s, r_id, r_len, final_r_start, final_r_end, score, r_len, mapq);
+    paf_line
 }
 
 

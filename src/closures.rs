@@ -3,7 +3,7 @@
 
 use std::io::{self};
 use std::error::Error;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use crate::BufReadDecompressor;
 use histo::Histogram;
@@ -85,26 +85,26 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     // Closures for mapping queries to references
 
-    let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> Option<(Option<Match>, String)> {
+    let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
         if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
         let match_opt = mers::find_hits(&seq_id, seq_str.len(), &seq_str, &lens, &mers_index, params, &aln_coords);
-        return Some((match_opt, seq_id.to_string()))
+        return (seq_id.to_string(), match_opt)
     };
-    let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<(Option<Match>, String)>| {
+    let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
     
     };
-    let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<(Option<Match>, String)>| {
+    let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, Option<String>)| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
     };
-    let mut main_thread_mer = |found: &mut Option<(Option<Match>, String)>| { // runs in main thread
-        if found.is_some() {
-            let (match_opt, seq_id) = found.as_ref().unwrap();
-            all_matches.insert((seq_id.to_string(), match_opt.clone()));
+    let mut main_thread_mer = |found: &mut (String, Option<String>)| { // runs in main thread
+        let (seq_id, match_opt) = found;
+        if let Some(l) = match_opt {
+            write!(paf_file, "{}\n", l).expect("Error writing line.");
         }
         None::<()>
     };
@@ -174,7 +174,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         read_process_fastq_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fastq_mer, |record, found| {ref_main_thread_mer(found)});
     }
     let duration = start.elapsed();
-    println!("Indexed references in {:?}.", duration);
+    println!("Indexed {} unique k-min-mers in {:?}.", mers_index.get_count(), duration);
 
     // Done, start processing queries
 
@@ -183,14 +183,14 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     if fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
         read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
+        //mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
         let query_duration = query_start.elapsed();
         println!("Mapped query sequences in {:?}.", query_duration);
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
         read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
-        mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
+        //mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
         let query_duration = query_start.elapsed();
         println!("Mapped query sequences in {:?}.", query_duration);
     }
