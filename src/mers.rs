@@ -32,7 +32,7 @@ pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index
         return 0;
     }
     let density = params.density as FH;
-    let mode = if params.use_hpc {HashMode::Hpc} else {HashMode::Simd};
+    let mode = if params.use_hpc {HashMode::Hpc} else {HashMode::Regular};
     let iter = KminmersIterator::new(inp_seq_raw, l, k, density, mode).unwrap();
     let mut count = 0;
     for kminmer in iter {
@@ -53,7 +53,7 @@ pub fn extract<'a>(seq_id: &str, inp_seq_raw: &'a [u8], params: &Params) -> Opti
         return None;
     }
     let density = params.density as FH;
-    let mode = if params.use_hpc {HashMode::Hpc} else {HashMode::Simd};
+    let mode = if params.use_hpc {HashMode::Hpc} else {HashMode::Regular};
     return Some(KminmersIterator::new(inp_seq_raw, l, k, density, mode).unwrap());
 }
 

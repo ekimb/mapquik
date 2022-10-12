@@ -20,6 +20,13 @@ impl Hasher for KnownHasher {
         panic!("KnownHasher must be called with known u64 hash values")
     }
 
+#[inline]
+    fn write_u32(&mut self, i: u32) {
+        debug_assert!(self.hash.is_none());
+        self.hash = Some(i);
+    }
+
+
     #[inline]
     fn write_u64(&mut self, i: u64) {
         debug_assert!(self.hash.is_none());
