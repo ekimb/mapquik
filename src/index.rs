@@ -2,7 +2,7 @@
 // Contains the "Index" and "Entry" structs, which describe how reference k-min-mers are stored. 
 
 use crate::{KH};
-use dashmap::DashMap;
+use dashmap::{DashMap, ReadOnlyView};
 use std::sync::Arc;
 use std::hash::BuildHasherDefault;
 use fxhash::FxHasher64;
@@ -79,7 +79,7 @@ impl Entry {
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
     //pub index: Arc<DashMap<H, Entry, BuildHasherDefault<FxHasher64>>>
-    pub index: Arc<DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>>
+    pub index: Arc<DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>>,
 }
 impl Index {
 
@@ -87,8 +87,11 @@ impl Index {
     pub fn new() -> Self {
         //let hasher = BuildHasherDefault::<FxHasher64>::default();
         let hasher = BuildHasherDefault::<KnownHasher>::default();
-        Index {index: Arc::new(DashMap::with_capacity_and_hasher(39821990/* number of kminmers in CHM13V2 with default params*/,
-                                                                             hasher))}
+        let map = DashMap::with_capacity_and_hasher(39821990/* number of kminmers in CHM13V2 with default params*/,
+                                                                                         hasher);
+        Index {
+            index: Arc::new(map),
+        }
     }
 
 
@@ -112,4 +115,27 @@ impl Index {
         let e = self.index.insert(h, Entry::new(id, start, end, offset, rc));
         if e.is_some() {self.index.insert(h, Entry::empty());}
     }
+}
+            
+
+pub struct ReadOnlyIndex {
+    pub read_only_index : Arc<ReadOnlyView<KH, Entry, BuildHasherDefault<KnownHasher>>>
+}
+impl ReadOnlyIndex {
+    pub fn new(index : DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>) -> Self {
+        ReadOnlyIndex {
+            read_only_index: Arc::new(index.into_read_only())
+        }
+    }
+    // Return the Entry associated with the k-min-mer hash h, or None if none.
+    pub fn get(&self, h: &KH) -> Option<&Entry> {
+        let e = self.read_only_index.get(h);
+        if let Some(r) = e {
+            if !r.is_empty() {
+                return Some(r);
+            }
+        }
+        None
+    }
+    
 }

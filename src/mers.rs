@@ -1,7 +1,7 @@
 // mers.rs
 // Contains the "Match", "Offset", and "AlignCand" types, along with driver functions for obtaining reference and query k-min-mers, Hits, Chains, and final coordinates.
 
-use crate::{Chain, Entry, Hit, File, Index, Params, kminmer_mapq, Stats};
+use crate::{Chain, Entry, Hit, File, Index, ReadOnlyIndex, Params, kminmer_mapq, Stats};
 use std::borrow::Cow;
 use std::cmp;
 use std::collections::{hash_map::DefaultHasher, HashMap, HashSet, VecDeque};
@@ -58,7 +58,7 @@ pub fn extract<'a>(seq_id: &str, inp_seq_raw: &'a [u8], params: &Params) -> Opti
 }
 
 // Generates raw Vecs of Hits by matching query k-min-mers to Entries from the Index.
-pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, index: &Index, params: &Params, q_len: usize) -> HashMap<String, Vec<Hit>> {
+pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, index: &ReadOnlyIndex, params: &Params, q_len: usize) -> HashMap<String, Vec<Hit>> {
     let mut hits_per_ref = HashMap::<String, Vec<Hit>>::new();
     let l = params.l;
     let k = params.k;
@@ -71,7 +71,7 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
             let mut h = Hit::new(query_id, &q, &r, params);
             h.extend(&mut query_it, index, &r, params, q_len);
             stats.add(&r);
-            hits_per_ref.entry(r.id).or_insert(Vec::new()).push(h);
+            hits_per_ref.entry(r.id.clone()).or_insert(Vec::new()).push(h);
         }
     }
     stats.finalize();
@@ -80,7 +80,7 @@ pub fn chain_hits(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, i
 
 
 // Extract raw Vecs of Hits, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
-pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &Index, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
+pub fn find_hits(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &ReadOnlyIndex, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
     let mut kminmers = extract(q_id, q_str, params);
     let hits_per_ref = chain_hits(q_id, &mut kminmers, mers_index, params, q_len);
     let mut all_pseudocoords = Vec::<PseudoChainCoordsTuple>::new();    

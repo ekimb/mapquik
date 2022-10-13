@@ -1,7 +1,7 @@
 // hit.rs
 // Contains the "Hit" struct, which represents a collection of consecutive k-min-mer matches from query to reference.
 
-use crate::{Entry, Index, Params};
+use crate::{Entry, ReadOnlyIndex, Params};
 use std::cmp;
 use std::fmt;
 use rust_seq2kminmers::{KminmersIterator, KminmerType as Kminmer, Kminmer as KminmerTrait};
@@ -81,7 +81,7 @@ impl Hit {
     }
 
     // Extend this Hit if it can be extended by the next Kminmer match.
-    pub fn extend(&mut self, query_it: &mut Peekable<&mut KminmersIterator>, index: &Index, p: &Entry, params: &Params, q_len: usize) {
+    pub fn extend(&mut self, query_it: &mut Peekable<&mut KminmersIterator>, index: &ReadOnlyIndex, p: &Entry, params: &Params, q_len: usize) {
         if let Some(q) = query_it.peek() {
             if q.end == 0 {query_it.next(); return;}
             let re = index.get(&q.get_hash());

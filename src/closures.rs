@@ -21,7 +21,7 @@ use crate::get_reader;
 use indicatif::ProgressBar;
 use std::time::Instant;
 use dashmap::DashSet;
-use crate::index::{Entry, Index};
+use crate::index::{Entry, Index, ReadOnlyIndex};
 use crate::align::{get_slices, align_slices, AlignStats};
 use std::borrow::Cow;
 
@@ -82,6 +82,24 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
 
     //
+
+    // Start processing references
+
+    let start = Instant::now();
+    let buf = get_reader(&ref_filename);
+    if ref_fasta_reads {
+        let reader = seq_io::fasta::Reader::new(buf);
+        read_process_fasta_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fasta_mer, |record, found| {ref_main_thread_mer(found)});
+    }
+    else {
+        let reader = seq_io::fastq::Reader::new(buf);
+        read_process_fastq_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fastq_mer, |record, found| {ref_main_thread_mer(found)});
+    }
+    let duration = start.elapsed();
+    println!("Indexed {} unique k-min-mers in {:?}.", mers_index.get_count(), duration);
+    let mers_index = ReadOnlyIndex::new(Arc::try_unwrap(mers_index.index).unwrap());
+
+    // Done, start processing queries
 
     // Closures for mapping queries to references
 
@@ -159,24 +177,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         None::<()>
     };
 
-    //
 
-    // Start processing references
-
-    let start = Instant::now();
-    let buf = get_reader(&ref_filename);
-    if ref_fasta_reads {
-        let reader = seq_io::fasta::Reader::new(buf);
-        read_process_fasta_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fasta_mer, |record, found| {ref_main_thread_mer(found)});
-    }
-    else {
-        let reader = seq_io::fastq::Reader::new(buf);
-        read_process_fastq_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fastq_mer, |record, found| {ref_main_thread_mer(found)});
-    }
-    let duration = start.elapsed();
-    println!("Indexed {} unique k-min-mers in {:?}.", mers_index.get_count(), duration);
-
-    // Done, start processing queries
 
     let query_start = Instant::now();
     let buf = get_reader(&filename);

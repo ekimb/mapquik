@@ -31,7 +31,7 @@ use std::cell::UnsafeCell;
 use std::io::Result;
 use core::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
-use crate::index::{Entry, Index};
+use crate::index::{Entry, Index, ReadOnlyIndex};
 use crate::mers::{Match, AlignCand};
 use crate::hit::Hit;
 use crate::stats::Stats;
@@ -180,7 +180,7 @@ fn main() {
     if use_hpc {
         println!("Using HPC ntHash");
     } else {
-        println!("Using SIMD ntHash");
+        println!("Using regular ntHash (not HPC)");
     }
     let mut threads : usize = 8;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
