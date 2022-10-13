@@ -32,20 +32,23 @@ use std::io::Result;
 use core::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
 use crate::index::{Entry, Index, ReadOnlyIndex};
-use crate::mers::{Match, AlignCand};
+use crate::mers::{AlignCand};
 use crate::hit::Hit;
 use crate::stats::Stats;
-use crate::chain::{Chain, kminmer_mapq};
+use crate::chain::{Chain};
 use rust_seq2kminmers::{KminmerType, Kminmer, H, FH, KH};
 mod closures;
 mod mers;
 mod align;
 mod index;
 mod hit;
-mod chain;
 mod stats;
+mod r#match;
+mod chain;
 
 type ThreadIdType = usize;
+pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
+pub type PseudoChainCoordsTuple<'a> = (&'a String, (bool, usize, usize, usize, usize, usize, usize));
 pub struct Params {
     k: usize,
     l: usize,

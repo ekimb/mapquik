@@ -1,53 +1,31 @@
 // chain.rs
-// Contains the "Chain" struct, which is a Vec of Hits, and various necessary operations to filter out bad Hits.
+// Contains the "Chain" struct, which is a Vec of matches, and various necessary operations to filter out bad matches.
 
-use crate::{Entry, Hit, Index, Match, Params};
+use crate::{Entry, Index, r#match::Match, Params, PseudoChainCoords, PseudoChainCoordsTuple};
 use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Chain {
-    hits: Vec<Hit>,
+    matches: Vec<Match>,
 }
 impl Chain {
 
-    // New Chain from &Vec of Hits.
-    pub fn new(hits: &Vec<Hit>) -> Self {
-        Chain {hits: hits.to_vec()}
+    // New Chain from &Vec of matches.
+    pub fn new(matches: &Vec<Match>) -> Self {
+        Chain {matches: matches.to_vec()}
     }
 
     // An empty Chain object.
     pub fn empty() -> Self {
-        Chain {hits: Vec::new()}
+        Chain {matches: Vec::new()}
     }
 
-    // Generate a new Chain from Hits that are only in the forward direction.
-    pub fn get_fwd(&self) -> Chain {
-        let fwd = self.hits.iter().filter(|h| !h.rc).cloned().collect::<Vec<Hit>>();
-        Chain::new(&fwd)
+    pub fn filter_match_span(&mut self) {
+        self.matches.retain(|h| h.span_diff() < (h.r_span()));
     }
 
-    // Generate a new Chain from Hits that are only in the reverse direction.
-    pub fn get_rc(&self) -> Chain {
-        let rc = self.hits.iter().filter(|h| h.rc).cloned().collect::<Vec<Hit>>();
-        Chain::new(&rc)
-    }
-
-    // Get the sum of all scores from the Hits in the Chain.
-    pub fn get_score(&self) -> usize {
-        return self.hits.iter().map(|h| h.score).sum::<usize>();
-    }
-
-    // Get the Hit that has the maximum score in the Chain.
-    pub fn get_max_score(&self) -> &Hit {
-        return self.hits.iter().max_by(|a, b| a.score.cmp(&b.score)).unwrap();
-    }
-
-    pub fn filter_hit_span(&mut self) {
-        self.hits.retain(|h| h.span_diff() < (h.r_span()));
-    }
-
-    // Get the total difference in span (difference between length of query covered by a Hit and length of reference covered by the Hit) of the Chain.
+    // Get the total difference in span (difference between length of query covered by a Match and length of reference covered by the Match) of the Chain.
     pub fn span_diff(&self) -> usize {
         let mut s = 0;
         for i in 0..self.len() {
@@ -57,65 +35,60 @@ impl Chain {
         s
     }
 
-    // Get total number of k-min-mer matches in the Chain (a Hit can have multiple consecutive k-min-mer matches).
+    // Get total number of k-min-mer matches in the Chain (a Match can have multiple consecutive k-min-mer matches).
     pub fn get_count(&self) -> usize {
-        return self.hits.iter().map(|h| h.count).sum::<usize>();
+        return self.matches.iter().map(|h| h.count).sum::<usize>();
     }
 
-    // Get the Hit that has the maximum number of consecutive k-min-mer matches.
-    pub fn get_max_count(&self) -> &Hit {
-        return self.hits.iter().max_by(|a, b| a.count.cmp(&b.count)).unwrap();
-    }
-
-    // Get the number of Hits in the Chain.
+    // Get the number of matches in the Chain.
     pub fn len(&self) -> usize {
-        return self.hits.len()
+        return self.matches.len()
     } 
 
     // Check if the Chain is empty.
     pub fn is_empty(&self) -> bool {
-        self.hits.is_empty()
+        self.matches.is_empty()
     }
 
-    // Check if the Chain contains the Hit.
-    pub fn contains(&self, h: &Hit) -> bool {
-        self.hits.contains(h)
+    // Check if the Chain contains the Match.
+    pub fn contains(&self, h: &Match) -> bool {
+        self.matches.contains(h)
     }
 
-    // Return a raw Vec of Hits.
-    pub fn hits(&self) -> &Vec<Hit> {
-        &self.hits
+    // Return a raw Vec of matches.
+    pub fn matches(&self) -> &Vec<Match> {
+        &self.matches
     }
 
-    // Get the first Hit in the Chain.
-    pub fn first(&self) -> &Hit {
-        &self.hits[0]
+    // Get the first Match in the Chain.
+    pub fn first(&self) -> &Match {
+        &self.matches[0]
     }
 
-    // Get the last Hit in the Chain.
-    pub fn last(&self) -> &Hit {
-        &self.hits[self.len() - 1]
+    // Get the last Match in the Chain.
+    pub fn last(&self) -> &Match {
+        &self.matches[self.len() - 1]
     }
 
-    // Get the nth Hit in the Chain.
-    pub fn nth(&self, i: usize) -> &Hit {
-        &self.hits[i]
+    // Get the nth Match in the Chain.
+    pub fn nth(&self, i: usize) -> &Match {
+        &self.matches[i]
     }
 
-    // Remove the ith Hit in the Chain.
+    // Remove the ith Match in the Chain.
     pub fn remove(&mut self, i: usize) {
-        self.hits.remove(i);
+        self.matches.remove(i);
     }
 
-    // Reverse the order of Hits in the Chain.
+    // Reverse the order of matches in the Chain.
     pub fn reverse(&mut self) {
-        self.hits.reverse();
+        self.matches.reverse();
     }
 
-    pub fn check_hit_compatible(&self, h1: &Hit, h2: &Hit, g: usize) -> bool {
+    pub fn check_match_compatible(&self, h1: &Match, h2: &Match, g: usize) -> bool {
         if h1 == h2 {return true;}
         if h1.rc != h2.rc {return false;}
-        let (u, v) = match h1.q_offset < h2.q_offset {
+        let (u, v) = match h1.q_start < h2.q_start {
             true => (h1, h2),
             false => (h2, h1),
         };
@@ -138,25 +111,25 @@ impl Chain {
 
     pub fn retain_unique(&mut self) {
         let len = self.len();
-        let mut remove_hit_indices = vec![false; len];
+        let mut remove_match_indices = vec![false; len];
         for i in 0..self.len() {
             let h_i = self.nth(i);
-            let h_c = self.hits.iter().filter(|hp| hp.r_start == h_i.r_start && hp.r_end == h_i.r_end && hp.rc == h_i.rc).count();
-            if h_c > 1 {remove_hit_indices[i] = true;}
+            let h_c = self.matches.iter().filter(|hp| hp.r_start == h_i.r_start && hp.r_end == h_i.r_end && hp.rc == h_i.rc).count();
+            if h_c > 1 {remove_match_indices[i] = true;}
         }
-        self.hits = (0..len).filter(|i| !remove_hit_indices[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Hit>>();
+        self.matches = (0..len).filter(|i| !remove_match_indices[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Match>>();
 
     }
 
-    pub fn colinear_idx_per_hit(&self, h: &Hit, g: usize) ->  Vec<usize> {
-        let col = (0..self.len()).filter(|i| self.check_hit_compatible(h, self.nth(*i), g)).collect::<Vec<usize>>();
+    pub fn colinear_idx_per_match(&self, h: &Match, g: usize) ->  Vec<usize> {
+        let col = (0..self.len()).filter(|i| self.check_match_compatible(h, self.nth(*i), g)).collect::<Vec<usize>>();
         col
     }
-    pub fn colinear_hits_per_hit(&self, h: &Hit, g: usize) ->  (Vec<&Hit>, usize) {
+    pub fn colinear_matches_per_match(&self, h: &Match, g: usize) ->  (Vec<&Match>, usize) {
         let mut col = Vec::new();
         let mut tot = 0;
-        for hp in self.hits.iter() {
-            if self.check_hit_compatible(h, hp, g) {
+        for hp in self.matches.iter() {
+            if self.check_match_compatible(h, hp, g) {
                 col.push(hp);
                 tot += hp.count;
             }
@@ -164,7 +137,7 @@ impl Chain {
         (col, tot)
     }
 
-    pub fn check_colinear_hit_set(&self, col: &Vec<usize>, g: usize) -> (Vec<usize>, usize) {
+    pub fn check_colinear_match_set(&self, col: &Vec<usize>, g: usize) -> (Vec<usize>, usize) {
         let mut remove_h = HashMap::<usize, Vec<usize>>::new();
         let mut remove_count : i32 = 0;
         let mut to_remove = vec![false; self.len()];
@@ -175,7 +148,7 @@ impl Chain {
             for idx_j in idx_i..col.len() {
                 let j = col[idx_j];
                 let mut h_j = self.nth(j);
-                if !self.check_hit_compatible(h_i, h_j, g) {
+                if !self.check_match_compatible(h_i, h_j, g) {
                     remove_h.entry(i).or_insert(Vec::new()).push(j);
                     remove_h.entry(j).or_insert(Vec::new()).push(i);
                     remove_count += 1;
@@ -205,18 +178,17 @@ impl Chain {
         let mut max_score = 0;
         for i in 0..len {
             let h_i = self.nth(i);
-            let col = self.colinear_idx_per_hit(h_i, g);
-            let (col_f, score) = self.check_colinear_hit_set(&col, g);
+            let col = self.colinear_idx_per_match(h_i, g);
+            let (col_f, score) = self.check_colinear_match_set(&col, g);
             if score > max_score {
                 max_col = col_f;
                 max_score = score;
             }
         }
-        self.hits = max_col.iter().map(|i| self.nth(*i).clone()).collect::<Vec<Hit>>();
-        self.sort_by_q_offset();
+        self.matches = max_col.iter().map(|i| self.nth(*i).clone()).collect::<Vec<Match>>();
     }
 
-    pub fn filter_hits(&mut self, g: usize) {
+    pub fn filter_matches(&mut self, g: usize) {
 
         let len = self.len();
         if len == 0 {return;}
@@ -224,18 +196,18 @@ impl Chain {
         let mut max_count = 0;
         for i in 0..len {
             let h = self.nth(i);
-            let (chain, count) = self.colinear_hits_per_hit(h, g);
+            let (chain, count) = self.colinear_matches_per_match(h, g);
             if count > max_count {
                 max_chain = chain;
                 max_count = count;
             }
         }
-        //let max_chain = self.colinear_hits_per_hit(self.hits.iter().max_by(|a, b| self.colinear_hits_per_hit(a, g).iter().map(|h| h.count).sum::<usize>().cmp(&self.colinear_hits_per_hit(b, g).iter().map(|hp| hp.count).sum::<usize>())).unwrap(), g);
-        self.hits = max_chain.into_iter().cloned().collect();
-        self.sort_by_q_offset();
+        //let max_chain = self.colinear_matches_per_match(self.matches.iter().max_by(|a, b| self.colinear_matches_per_match(a, g).iter().map(|h| h.count).sum::<usize>().cmp(&self.colinear_matches_per_match(b, g).iter().map(|hp| hp.count).sum::<usize>())).unwrap(), g);
+        self.matches = max_chain.into_iter().cloned().collect();
+        //self.sort_by_q_start();
     }
 
-    pub fn find_largest_two_hits(&self) -> (usize, usize) {
+    pub fn find_largest_two_matches(&self) -> (usize, usize) {
         let mut max = 0;
         let mut max_count = 0;
         let mut second_max = 0;
@@ -255,26 +227,29 @@ impl Chain {
         (max, second_max)
     }
 
-    pub fn filter_hits_max_two(&mut self, g: usize) {
+    pub fn filter_matches_c(&mut self, g: usize, c: usize) {
         let len = self.len();
-        let (max, second_max) = self.find_largest_two_hits();
-        let (max_chain, tot) = self.colinear_hits_per_hit(self.nth(max), g);
-        let max_count = max_chain.iter().map(|h| h.count).sum::<usize>();
-        self.hits = max_chain.into_iter().cloned().collect();
-        let (second_max_chain, second_tot) = self.colinear_hits_per_hit(self.nth(second_max), g);
-        let second_max_count = second_max_chain.iter().map(|h| h.count).sum::<usize>();
-        if second_max_count > max_count {
-            self.hits = second_max_chain.into_iter().cloned().collect();
+        let mut sorted_idx = (0..len).collect::<Vec<usize>>();
+        sorted_idx.sort_by(|a, b| self.nth(*a).count.cmp(&self.nth(*b).count));
+        let mut max_chain = Vec::new();
+        let mut max_count = 0;
+        for i in 0..c {
+            let max_i = sorted_idx[len - 1 - i];
+            let (chain, count) = self.colinear_matches_per_match(self.nth(max_i), g);
+            if count > max_count {
+                max_chain = chain;
+                max_count = count;
+            }
         }
-        self.sort_by_q_offset();
+        self.matches = max_chain.into_iter().cloned().collect();
     }
 
-    pub fn filter_hits_max(&mut self, g: usize) {
+    pub fn filter_matches_max(&mut self, g: usize) {
         let len = self.len();
-        let (max, second_max) = self.find_largest_two_hits();
-        let (max_chain, tot) = self.colinear_hits_per_hit(self.nth(max), g);
-        self.hits = max_chain.into_iter().cloned().collect();
-        self.sort_by_q_offset();
+        let (max, second_max) = self.find_largest_two_matches();
+        let (max_chain, tot) = self.colinear_matches_per_match(self.nth(max), g);
+        self.matches = max_chain.into_iter().cloned().collect();
+        //self.sort_by_q_start();
     }
 
 
@@ -317,40 +292,37 @@ impl Chain {
         (self.rc_start_inconsistent(u_r_s, v_r_s)) //|| self.rc_end_inconsistent(u_r_e, v_r_e))
     }
 
-    // Sort the Chain by the query k-min-mer offsets of the Hits.
-    pub fn sort_by_q_offset(&mut self) {
-        self.hits.sort_by(|a, b| a.q_offset.cmp(&b.q_offset));
-    }
-
-    // Sort the Chain by the reference k-min-mer offsets of the Hits.
-    pub fn sort_by_r_offset(&mut self) {
-        self.hits.sort_by(|a, b| a.q_offset.cmp(&b.r_offset));
+    // Sort the Chain by the query k-min-mer offsets of the matches.
+    pub fn sort_by_q_start(&mut self) {
+        self.matches.sort_by(|a, b| a.q_start.cmp(&b.q_start));
     }
 
     // Generate a new Chain that has no elements that also occur in another Chain c.
     pub fn find_complement(&self, c: &Chain) -> Chain {
-        let mut c_p = self.hits.iter().filter(|h| !c.contains(h)).cloned().collect::<Vec<Hit>>();
+        let mut c_p = self.matches.iter().filter(|h| !c.contains(h)).cloned().collect::<Vec<Match>>();
         Chain::new(&c_p)
     }
 
     // Modify this particular Chain so that it has no elements that also occur in another Chain c.
     pub fn retain_complement(&mut self, c: &Chain) {
-        self.hits.retain(|h| !c.contains(h));
+        self.matches.retain(|h| !c.contains(h));
     }
 
     // Replace this Chain object with another Chain c.
     pub fn replace(&mut self, c: &Chain) {
-        self.hits = c.hits().to_vec();
+        self.matches = c.matches().to_vec();
     }
 
-    // Wrapper function that filters bad Hits, checks for consistency, and obtains final coordinates.
+    // Wrapper function that filters bad matches, checks for consistency, and obtains final coordinates.
 
     // Outputs a Match object (see mers.rs for a definition).
-    pub fn get_match(&mut self, params: &Params) -> Option<(bool, usize, usize, usize, usize, usize, usize)> {
+    pub fn get_match(&mut self, params: &Params) -> Option<PseudoChainCoords> {
         let mut len = self.len();
         if len > 1 {
             //self.retain_unique();
-            self.filter_hits(params.g);
+            //self.filter_matches_c(params.g, len - 1);
+            self.filter_matches(params.g);
+            //self.check_colinear(params.g);
         }
         let len_f = self.len();
         if len_f == 0 {return None;}
@@ -367,9 +339,10 @@ impl Chain {
             false => Some((rc, first.q_start, last.q_end - 1, first.r_start, last.r_end - 1, score, mapq)),
         };
     }
+    
 
-    // Obtains query and reference intervals that are not covered by a Hit in the final Chain object (only for base-level alignment).
-    pub fn get_remaining_seqs(&self, m: &Match) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    // Obtains query and reference intervals that are not covered by a Match in the final Chain object (only for base-level alignment).
+    /*pub fn get_remaining_seqs(&self, m: &Match) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
         let mut q_coords = Vec::<(usize, usize)>::new();
         let mut r_coords = Vec::<(usize, usize)>::new();
 
@@ -382,18 +355,18 @@ impl Chain {
                 false => "+",
             };
             for i in 0..self.len() {
-                let hit = self.nth(i);
-                let rc_s = match hit.rc {
+                let match = self.nth(i);
+                let rc_s = match match.rc {
                     true => "-",
                     false => "+",
                 };
-                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, hit.q_start, prev_r_end, hit.r_start);
-                //println!("QMMM!{}!{}!RMMM!{}!{}", hit.q_start, hit.q_end, hit.r_start, hit.r_end); 
-                if prev_q_end < &hit.q_start && &hit.r_start > prev_r_end {
-                    q_coords.push((*prev_q_end, hit.q_start));
-                    r_coords.push((*prev_r_end, hit.r_start));
-                    prev_q_end = &hit.q_end;
-                    prev_r_end = &hit.r_end;
+                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
+                //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
+                if prev_q_end < &match.q_start && &match.r_start > prev_r_end {
+                    q_coords.push((*prev_q_end, match.q_start));
+                    r_coords.push((*prev_r_end, match.r_start));
+                    prev_q_end = &match.q_end;
+                    prev_r_end = &match.r_end;
                 }
             }
             //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, prev_r_end, r_end);
@@ -411,19 +384,19 @@ impl Chain {
                 false => "+",
             };
             for i in 0..self.len() {
-                let hit = self.nth(i);
-                let rc_s = match hit.rc {
+                let match = self.nth(i);
+                let rc_s = match match.rc {
                     true => "-",
                     false => "+",
                 };
-                if hit.r_end < *r_start {break;}
-                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, hit.q_start, prev_r_end, hit.r_start);
-                //println!("QMMM!{}!{}!RMMM!{}!{}", hit.q_start, hit.q_end, hit.r_start, hit.r_end); 
-                if prev_q_end < &hit.q_start && &hit.r_end < prev_r_start {
-                    q_coords.push((*prev_q_end, hit.q_start));
-                    r_coords.push((hit.r_end, *prev_r_start));
-                    prev_q_end = &hit.q_end;
-                    prev_r_start = &hit.r_start;
+                if match.r_end < *r_start {break;}
+                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
+                //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
+                if prev_q_end < &match.q_start && &match.r_end < prev_r_start {
+                    q_coords.push((*prev_q_end, match.q_start));
+                    r_coords.push((match.r_end, *prev_r_start));
+                    prev_q_end = &match.q_end;
+                    prev_r_start = &match.r_start;
                 }
             }
             //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, r_start, prev_r_start);
@@ -433,7 +406,7 @@ impl Chain {
             }
         }
         (q_coords, r_coords)
-    } 
+    } */
 }
 
 // Pretty-prints a Chain.

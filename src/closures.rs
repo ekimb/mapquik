@@ -14,7 +14,7 @@ use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records};
 use dashmap::DashMap;
 use thread_id;
 use super::mers;
-use crate::mers::{Match, AlignCand, Offset};
+use crate::mers::{AlignCand, Offset};
 use std::path::PathBuf;
 use super::Params;
 use crate::get_reader;
@@ -28,7 +28,6 @@ use std::borrow::Cow;
 // Main function for all FASTA parsing + mapping / alignment functions.
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
 
-    let mut all_matches : Arc<DashSet<(String, Option<Match>)>> = Arc::new(DashSet::new()); // Index of each Match object obtained per query
     let mers_index = Index::new(); // Index of reference k-min-mer entries
     let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
     let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
@@ -105,7 +104,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
         if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
-        let match_opt = mers::find_hits(&seq_id, seq_str.len(), &seq_str, &lens, &mers_index, params, &aln_coords);
+        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &lens, &mers_index, params, &aln_coords);
         return (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {

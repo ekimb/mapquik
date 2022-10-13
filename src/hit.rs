@@ -83,7 +83,6 @@ impl Hit {
     // Extend this Hit if it can be extended by the next Kminmer match.
     pub fn extend(&mut self, query_it: &mut Peekable<&mut KminmersIterator>, index: &ReadOnlyIndex, p: &Entry, params: &Params, q_len: usize) {
         if let Some(q) = query_it.peek() {
-            if q.end == 0 {query_it.next(); return;}
             let re = index.get(&q.get_hash());
             //println!("HIT!{}!!QS!{}!QE!{}!QOFF!{}!QRC!{}!RS!{}!RE!{}!ROFF!{}!RRC!{}!", self, q.start, q.end, q.offset, q.rev, r.start, r.end, r.offset, r.rc);
             if let Some(r) = re {
@@ -93,9 +92,9 @@ impl Hit {
                     self.extend(query_it, index, &r, params, q_len)
                 }
             }
-            else {query_it.next();}
+            else {query_it.next(); return;}
         }
-        else {query_it.next();}
+        else {query_it.next(); return;}
     }
     
     // Calculate (approximately) the number of matching bases in this Kminmer match.
