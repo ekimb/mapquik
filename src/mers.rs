@@ -63,7 +63,7 @@ pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>
             let mut h = Match::new(&q, &r);
             h.extend(&mut query_it, index, &r);
             stats.add(&r);
-            matches_per_ref.entry(r.id).or_insert(Vec::new()).push(h);
+            matches_per_ref.entry(r.id.clone()).or_insert(Vec::new()).push(h);
         }
     }
     stats.finalize();
