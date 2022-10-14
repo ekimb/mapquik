@@ -15,6 +15,9 @@ use std::io::{BufRead, BufReader};
 use std::collections::HashMap;
 use std::fs::{File};
 use std::collections::HashSet;
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 extern crate array_tool;
 use std::fs;
 use structopt::StructOpt;
@@ -31,6 +34,7 @@ use std::cell::UnsafeCell;
 use std::io::Result;
 use core::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
+use chrono::{Utc};
 use crate::index::{Entry, Index, ReadOnlyIndex};
 use crate::mers::{AlignCand};
 use crate::hit::Hit;
@@ -240,6 +244,7 @@ fn main() {
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
     closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);
+    println!("current time after exiting closures {:?}",Utc::now());
     //if params.a {
        // println!("Running WFA...");
        // wfa::run_wfa(&filename, &ref_filename, &matches, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);

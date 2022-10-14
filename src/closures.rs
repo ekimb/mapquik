@@ -24,6 +24,7 @@ use dashmap::DashSet;
 use crate::index::{Entry, Index, ReadOnlyIndex};
 use crate::align::{get_slices, align_slices, AlignStats};
 use std::borrow::Cow;
+use chrono::{Utc};
 
 // Main function for all FASTA parsing + mapping / alignment functions.
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
@@ -81,7 +82,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
 
     //
-
+    
     // Start processing references
 
     let start = Instant::now();
@@ -96,10 +97,11 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     }
     let duration = start.elapsed();
     println!("Indexed {} unique k-min-mers in {:?}.", mers_index.get_count(), duration);
+
     let mers_index = ReadOnlyIndex::new(Arc::try_unwrap(mers_index.index).unwrap());
 
     // Done, start processing queries
-
+    
     // Closures for mapping queries to references
 
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
@@ -235,4 +237,5 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
             println!("[warning] Alignment stats: {} successful, {} failed", global_align_stats.successful, global_align_stats.failed);
         }
     }
+    println!("current time before exiting closures {:?}",Utc::now());
 }

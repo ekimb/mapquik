@@ -49,6 +49,9 @@ libwfa = { git = "https://github.com/rchikhi/rs-wfa" }
 rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
 #rust-seq2kminmers = { path = "/pasteur/appa/homes/rchikhi/tools/rust-seq2kminmers" }
 fxhash = "0.2.1"
+chrono = "0.4.22"
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5"
 
 [profile.dev]
 opt-level = 3
