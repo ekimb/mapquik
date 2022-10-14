@@ -25,6 +25,7 @@ use crate::index::{Entry, Index, ReadOnlyIndex};
 use crate::align::{get_slices, align_slices, AlignStats};
 use std::borrow::Cow;
 use chrono::{Utc};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Main function for all FASTA parsing + mapping / alignment functions.
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
@@ -33,7 +34,9 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
     let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
     let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
-    let lens : DashMap<String, usize> = DashMap::new(); // Sequence lengths per reference
+    let ref_i = AtomicUsize::new(0);
+    let ref_map : DashMap<usize, (String, usize)> = DashMap::new(); // Sequence lengths per reference
+
 
 
     // PAF file generation
@@ -52,8 +55,9 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     // Closure for indexing reference k-min-mers
     let index_mers = |seq_id: &str, seq: &[u8], params: &Params| -> usize {
-        let nb_mers = mers::ref_extract(seq_id, seq, params, &mers_index);
-        lens.insert(seq_id.to_string(), seq.len());
+        let ref_idx = ref_i.fetch_add(1, Ordering::Relaxed);
+        let nb_mers = mers::ref_extract(ref_idx, seq, params, &mers_index);
+        ref_map.insert(ref_idx, (seq_id.to_string(), seq.len()));
         nb_mers
     };
 
@@ -106,7 +110,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
         if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
-        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &lens, &mers_index, params, &aln_coords);
+        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &ref_map, &mers_index, params, &aln_coords);
         return (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {

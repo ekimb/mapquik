@@ -42,7 +42,7 @@ impl Hasher for KnownHasher {
 // An Entry object holds information for a reference k-min-mer without storing the minimizer hashes themselves.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Entry {
-    pub id: String, // Reference ID
+    pub id: usize, // Reference ID
     pub start: usize, // Start location
     pub end: usize, // End location
     pub offset: usize, // K-min-mer offset (index in the k-min-mer array)
@@ -51,23 +51,23 @@ pub struct Entry {
 impl Entry {
 
     // Create a new Entry.
-    pub fn new(id: &str, start: usize, end: usize, offset: usize, rc: bool) -> Self {
-        Entry {id: id.to_string(), start, end, offset, rc}
+    pub fn new(id: usize, start: usize, end: usize, offset: usize, rc: bool) -> Self {
+        Entry {id, start, end, offset, rc}
     }
 
     // Create a new Entry given a tuple.
-    pub fn from_tuple(t: (String, usize, usize, usize, bool)) -> Self {
-        Entry {id: t.0.to_string(), start: t.1, end: t.2, offset: t.3, rc: t.4}
+    pub fn from_tuple(t: (usize, usize, usize, usize, bool)) -> Self {
+        Entry {id: t.0, start: t.1, end: t.2, offset: t.3, rc: t.4}
     }
 
     // Output a Raw tuple.
-    pub fn expand(&self) -> (String, usize, usize, usize, bool) {
-        (self.id.to_string(), self.start, self.end, self.offset, self.rc)
+    pub fn expand(&self) -> (usize, usize, usize, usize, bool) {
+        (self.id, self.start, self.end, self.offset, self.rc)
     }
 
     // An empty Entry.
     pub fn empty() -> Self {
-        Entry {id: String::new(), start: 0, end: 0, offset: 0, rc: false}
+        Entry {id: 0, start: 0, end: 0, offset: 0, rc: false}
     }
 
     // Check if this Entry is Empty.
@@ -111,7 +111,7 @@ impl Index {
     }
 
     // Add an Entry to the Index. If an Entry for the hash h already exists, insert None to prevent duplicates.
-    pub fn add(&self, h: KH, id: &str, start: usize, end: usize, offset: usize, rc: bool) {
+    pub fn add(&self, h: KH, id: usize, start: usize, end: usize, offset: usize, rc: bool) {
         let e = self.index.insert(h, Entry::new(id, start, end, offset, rc));
         if e.is_some() {self.index.insert(h, Entry::empty());}
     }

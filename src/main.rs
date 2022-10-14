@@ -37,7 +37,6 @@ use std::collections::hash_map::DefaultHasher;
 use chrono::{Utc};
 use crate::index::{Entry, Index, ReadOnlyIndex};
 use crate::mers::{AlignCand};
-use crate::hit::Hit;
 use crate::stats::Stats;
 use crate::chain::{Chain};
 use rust_seq2kminmers::{KminmerType, Kminmer, H, FH, KH};
@@ -45,14 +44,13 @@ mod closures;
 mod mers;
 mod align;
 mod index;
-mod hit;
 mod stats;
 mod r#match;
 mod chain;
 
 type ThreadIdType = usize;
 pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
-pub type PseudoChainCoordsTuple<'a> = (&'a String, (bool, usize, usize, usize, usize, usize, usize));
+pub type PseudoChainCoordsTuple<'a> = (usize, (bool, usize, usize, usize, usize, usize, usize));
 pub struct Params {
     k: usize,
     l: usize,

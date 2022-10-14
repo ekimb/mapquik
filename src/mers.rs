@@ -17,7 +17,7 @@ pub type Offset = (usize, usize);
 pub type AlignCand = (Offset, String, Offset, bool);
 
 // Extract k-min-mers from reference. We don't store k-min-mer objects or hashes in a Vec, but rather immediately insert into the Index.
-pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index: &Index) -> usize {
+pub fn ref_extract(ref_idx: usize, inp_seq_raw: &[u8], params: &Params, mers_index: &Index) -> usize {
     let l = params.l;
     let k = params.k;
     if inp_seq_raw.len() < l+k-1 {
@@ -30,7 +30,7 @@ pub fn ref_extract(seq_id: &str, inp_seq_raw: &[u8], params: &Params, mers_index
     for kminmer in iter {
         //println!("{:?}", kminmer);
         // Add a reference k-min-mer to the Index.
-        mers_index.add(kminmer.get_hash(), seq_id, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
+        mers_index.add(kminmer.get_hash(), ref_idx, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
         count += 1;
         //eprintln!("{}\r", count);
     }
@@ -50,8 +50,8 @@ pub fn extract<'a>(seq_id: &str, inp_seq_raw: &'a [u8], params: &Params) -> Opti
 }
 
 // Generates raw Vecs of Matches by matching query k-min-mers to Entries from the Index.
-pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, index: &ReadOnlyIndex, params: &Params, q_len: usize) -> HashMap<String, Vec<Match>> {
-    let mut matches_per_ref = HashMap::<String, Vec<Match>>::new();
+pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, index: &ReadOnlyIndex, params: &Params, q_len: usize) -> HashMap<usize, Vec<Match>> {
+    let mut matches_per_ref = HashMap::<usize, Vec<Match>>::new();
     let l = params.l;
     let k = params.k;
     if query_it_raw.is_none() {return matches_per_ref;}
@@ -63,7 +63,7 @@ pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>
             let mut h = Match::new(&q, &r);
             h.extend(&mut query_it, index, &r);
             stats.add(&r);
-            matches_per_ref.entry(r.id.clone()).or_insert(Vec::new()).push(h);
+            matches_per_ref.entry(r.id).or_insert(Vec::new()).push(h);
         }
     }
     stats.finalize();
@@ -72,21 +72,22 @@ pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>
 
 
 // Extract raw Vecs of Matches, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
-pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<String, usize>, mers_index: &ReadOnlyIndex, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
+pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
     let mut kminmers = extract(q_id, q_str, params);
     let matches_per_ref = chain_matches(q_id, &mut kminmers, mers_index, params, q_len);
-    let mut all_pseudocoords = Vec::<PseudoChainCoordsTuple>::new();    
+    let mut all_pseudocoords = Vec::<(PseudoChainCoordsTuple, usize)>::new();    
     for e in matches_per_ref.iter() {
         let (r_id, matches_raw) = e;
         let mut c = Chain::new(matches_raw);
         let mut tp = c.get_match(&params);
-        if let Some(t) = tp {all_pseudocoords.push((r_id, t));}
+        let mut len_score = c.len();
+        if let Some(t) = tp {all_pseudocoords.push(((*r_id, t), len_score));}
     }
     let coords_count = all_pseudocoords.len();
     return match coords_count {
         0 => None,
-        1 => Some(find_coords(q_id, q_len, ref_lens,  &all_pseudocoords[0])),
-        _ => determine_best_match(q_id, q_len, ref_lens, &all_pseudocoords, coords_count),
+        1 => Some(find_coords(q_id, q_len, ref_map,  &all_pseudocoords[0].0, all_pseudocoords[0].1)),
+        _ => determine_best_match(q_id, q_len, ref_map, &all_pseudocoords, coords_count),
     };
        /* let (v, c) = &final_matches[0];
         if params.a {
@@ -99,19 +100,19 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_lens: &DashMap<S
         }*/
 }
 
-pub fn determine_best_match(q_id: &str, q_len: usize, ref_lens: &DashMap<String, usize>, all_pseudocoords: &Vec<PseudoChainCoordsTuple>, coords_count: usize) -> Option<String> {
+pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &Vec<(PseudoChainCoordsTuple, usize)>, coords_count: usize) -> Option<String> {
     let (max_i, next_max_i, max_count, next_max_count) = find_largest_two_chains(all_pseudocoords, coords_count);
     if max_count == next_max_count {return None;}
-    else {return Some(find_coords(q_id, q_len, ref_lens, &all_pseudocoords[max_i]));}
+    else {return Some(find_coords(q_id, q_len, ref_map, &all_pseudocoords[max_i].0, all_pseudocoords[max_i].1));}
 }
 
-pub fn find_largest_two_chains(all_pseudocoords: &Vec<PseudoChainCoordsTuple>, coords_count: usize) -> (usize, usize, usize, usize) {
+pub fn find_largest_two_chains(all_pseudocoords: &Vec<(PseudoChainCoordsTuple, usize)>, coords_count: usize) -> (usize, usize, usize, usize) {
     let mut max = 0;
     let mut max_count = 0;
     let mut second_max = 0;
     let mut second_max_count = 0;
     for i in 0..coords_count {
-        let (r_id, coord) = all_pseudocoords[i];
+        let (r_id, coord) = all_pseudocoords[i].0;
         let count = coord.5;
         if count > max_count {
             second_max = max;
@@ -126,9 +127,11 @@ pub fn find_largest_two_chains(all_pseudocoords: &Vec<PseudoChainCoordsTuple>, c
     (max, second_max, max_count, second_max_count)
 }
 
-pub fn find_coords(q_id: &str, q_len: usize, ref_lens: &DashMap<String, usize>, t: &PseudoChainCoordsTuple) -> String {
-    let (r_id, coords) = *t;
-    let r_len = *ref_lens.get(r_id).unwrap();
+pub fn find_coords(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, t: &PseudoChainCoordsTuple, len_score: usize) -> String {
+    let (r_idx, coords) = *t;
+    let rtup = ref_map.get(&r_idx).unwrap();
+    let r_id = &rtup.0;
+    let r_len = rtup.1;
     let (rc, q_start, q_end, r_start, r_end, score, mapq) = coords;
     let mut final_r_start = r_start;
     let mut final_r_end = r_end;
