@@ -72,7 +72,7 @@ pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>
 
 
 // Extract raw Vecs of Matches, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
-pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
+pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params) /* aln_coords: &DashMap<String, Vec<AlignCand>>) */-> Option<String> {
     let mut kminmers = extract(q_id, q_str, params);
     let matches_per_ref = chain_matches(q_id, &mut kminmers, mers_index, params, q_len);
     let mut all_pseudocoords = Vec::<(PseudoChainCoordsTuple, usize)>::new();    

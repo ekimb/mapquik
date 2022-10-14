@@ -65,7 +65,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         let nb_mers = index_mers(ref_id, ref_str, params);
-        if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
+        //if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
         println!("Indexed reference {}: {} k-min-mers.", ref_id, nb_mers);
         return Some(1)
     };
@@ -109,8 +109,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     // Closures for mapping queries to references
 
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
-        if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
-        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &ref_map, &mers_index, params, &aln_coords);
+        //if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
+        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &ref_map, &mers_index, params); //&aln_coords);
         return (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
@@ -135,7 +135,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     //
 
     // Closures for base-level alignment (obtaining reference sequence slices)
-
+    /*
     let ref_process_read_aux_aln = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         get_slices(ref_id, ref_str, &aln_coords, &aln_coords_q, &aln_seqs_cow);
         return Some(1)
@@ -182,7 +182,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         None::<()>
     };
 
-
+    */
 
     let query_start = Instant::now();
     let buf = get_reader(&filename);
@@ -202,7 +202,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     }
 
     // Done, start alignment (optional)
-
+    /*
     if params.a {
         let start = Instant::now();
         let buf_aln = get_reader(&ref_filename);
@@ -241,5 +241,6 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
             println!("[warning] Alignment stats: {} successful, {} failed", global_align_stats.successful, global_align_stats.failed);
         }
     }
+    */
     println!("current time before exiting closures {:?}",Utc::now());
 }
