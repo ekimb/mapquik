@@ -227,6 +227,19 @@ impl Chain {
         (max, second_max)
     }
 
+    pub fn find_largest_match(&self) -> usize {
+        let mut max = 0;
+        let mut max_count = 0;
+        for i in 0..self.len() {
+            let count = self.nth(i).count;
+            if count > max_count {
+                max = i;
+                max_count = count;
+            }
+        }
+        max
+    }
+
     pub fn filter_matches_c(&mut self, g: usize, c: usize) {
         let len = self.len();
         let mut sorted_idx = (0..len).collect::<Vec<usize>>();
@@ -246,7 +259,8 @@ impl Chain {
 
     pub fn filter_matches_max(&mut self, g: usize) {
         let len = self.len();
-        let (max, second_max) = self.find_largest_two_matches();
+        if len <= 1 {return;}
+        let max = self.find_largest_match();
         let (max_chain, tot) = self.colinear_matches_per_match(self.nth(max), g);
         self.matches = max_chain.into_iter().cloned().collect();
         //self.sort_by_q_start();
@@ -321,7 +335,7 @@ impl Chain {
         if len > 1 {
             //self.retain_unique();
             //self.filter_matches_c(params.g, len - 1);
-            self.filter_matches(params.g);
+            self.filter_matches_max(params.g);
             //self.check_colinear(params.g);
         }
         let len_f = self.len();
