@@ -31,9 +31,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
 
     let mers_index = Index::new(); // Index of reference k-min-mer entries
-    let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
-    let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
-    let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
+    //let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
+    //let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
+    //let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
     let ref_i = AtomicUsize::new(0);
     let ref_map : DashMap<usize, (String, usize)> = DashMap::new(); // Sequence lengths per reference
 
@@ -102,7 +102,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     let duration = start.elapsed();
     println!("Indexed {} unique k-min-mers in {:?}.", mers_index.get_count(), duration);
 
-    let mers_index = ReadOnlyIndex::new(Arc::try_unwrap(mers_index.index).unwrap());
+    let mers_index = ReadOnlyIndex::new(mers_index.index);
 
     // Done, start processing queries
     

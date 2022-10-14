@@ -79,7 +79,7 @@ impl Entry {
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
     //pub index: Arc<DashMap<H, Entry, BuildHasherDefault<FxHasher64>>>
-    pub index: Arc<DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>>,
+    pub index: DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>,
 }
 impl Index {
 
@@ -90,7 +90,7 @@ impl Index {
         let map = DashMap::with_capacity_and_hasher(39821990/* number of kminmers in CHM13V2 with default params*/,
                                                                                          hasher);
         Index {
-            index: Arc::new(map),
+            index: map,
         }
     }
 
@@ -119,12 +119,12 @@ impl Index {
             
 
 pub struct ReadOnlyIndex {
-    pub read_only_index : Arc<ReadOnlyView<KH, Entry, BuildHasherDefault<KnownHasher>>>
+    pub read_only_index : ReadOnlyView<KH, Entry, BuildHasherDefault<KnownHasher>>
 }
 impl ReadOnlyIndex {
     pub fn new(index : DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>) -> Self {
         ReadOnlyIndex {
-            read_only_index: Arc::new(index.into_read_only())
+            read_only_index: index.into_read_only()
         }
     }
     // Return the Entry associated with the k-min-mer hash h, or None if none.
