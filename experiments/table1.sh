@@ -101,4 +101,30 @@ winnowmap -W repetitive_k15.txt -x map-pb chm13v2.0.fa HG002_24kb_2SMRT_cells.dc
 #42061.77user 481.00system 1:12:56elapsed 972%CPU (0avgtext+0avgdata 11055884maxresident)k
 
 
+# getting number of Q60 reads from all mappers
+
  awk '$12 == 60 {print}' pafs/file.paf |awk '{print $1}' |sort|uniq|wc -l
+
+
+# -------------------- the simulated 10X centromeres analysis
+
+
+#preparation of the nocensat reads file
+cat simulated-chm13v2.0-10X.fa|grep ">" |awk -F'!' '{print $2" "$3" "$4}' |sort -n> simulated-chm13v2.0-10X.bed.tmp
+sed 's/ /\t/g' simulated-chm13v2.0-10X.bed.tmp |bedtools sort -i /dev/stdin > simulated-chm13v2.0-10X.bed
+rm -f simulated-chm13v2.0-10X.bed.tmp
+bedtools intersect -b chm13v2.0_censat_v2.0.bed -a simulated-chm13v2.0-10X.bed -wa -v |awk '{print $1"!"$2"!"$3}' > simulated-chm13v2.0-10X.nocensat.txt
+grep --no-group-separator -A1 -wFf simulated-chm13v2.0-10X.censat.txt simulated-chm13v2.0-10X.fa > simulated-chm13v2.0-10X.nocensat.fa
+
+
+#gathering reads not mapped at Q60
+awk '$12 == 60' hifimap.paf|awk '{print $1}'> hifimap.mappedQ60.txt
+wc -l hifimap.mappedQ60.txt
+-> 1448212 hifimap.mappedQ60.txt
+grep -vFwf hifimap.mappedQ60.txt simulated-chm13v2.0-10X.txt > hifimap.unmappedQ60.txt
+
+grep -Fwf hifimap.unmappedQ60.txt  simulated-chm13v2.0-10X.nocensat.fa|wc -l
+-> 2803
+$ wc -l hifimap.unmappedQ60.txt
+-> 42198 hifimap.unmappedQ60.txt
+
