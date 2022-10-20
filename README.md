@@ -10,9 +10,17 @@
 
 ## Installation
 
-Clone the repository (make sure you have a working Rust environment), and run 
+Pre-requisites: a working rust environment (https://rustup.rs/), `llvm`, and `clang` (for libwfa).
 
-`cargo build --release`
+Clone the repository, and run 
+
+```
+rustup install nightly
+export CARGO_NET_GIT_FETCH_WITH_CLI=true #fix for "failed to authenticate when downloading repository"
+cargo +nightly build --release
+```
+
+The nightly version of cargo is required because hifiasm uses experimental language features (SIMD, intrinsics). The `export` command is needed because libwfa has WFA2 as a git submodule with a SSH url.
 
 ## Quick start
 
