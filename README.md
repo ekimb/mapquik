@@ -25,8 +25,7 @@ The nightly version of cargo is required because hifiasm uses experimental langu
 ## Quick start
 
 ```
-cargo build --release
-target/release/hifimap <reads.fq> --reference <reference.fa> -k 5 -d 0.05 -l 12 -f 0 
+target/release/hifimap <reads.fq> --reference <reference.fa>
 ```
 
 ## Input
@@ -39,14 +38,15 @@ If you have [seqtk](https://github.com/lh3/seqtk) installed, you can use
 
 to format reads accordingly.
 
-## Output data 
+## Output
+
+The output of `hifimap` is a regular PAF file.
 
 ## Running an example
 
 A sample set of reads and a reference are provided in the `example/` folder. To run `hifimap` on it, type:
 
 ```
-cargo build --release
 cd example
 ../target/release/hifimap pbsim-ecoli.10X.100k.fa --reference  ecoli.genome.100k.fa -k 5 -d 0.05 -l 12 -f 0 
 ```
