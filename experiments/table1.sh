@@ -1,17 +1,17 @@
 
 # pasteur specific paths
 export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/BLEND/bin/
-export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/hifimap-refactor/target/release/
+export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/hifimap/target/release/
 
 
 # ---------------- simulated 10X
 
 
-LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
-#Total execution time: 195.453176694s
-#Maximum RSS: 6.5804214GB
-#1079.66user 40.38system 3:15.53elapsed 572%CPU (0avgtext+0avgdata 6900072maxresident)k
-#8624000inputs+289048outputs (2major+6509438minor)pagefaults 0swaps
+# deprecated, we don't use hard masking anymore as regular reference works even better now thanks to Baris' heuristic of keeping unique kminmers only
+#LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
+LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference chm13v2.0.oneline.fa -p hifimap-7-31-0.01-1 --threads 10
+
+
 
 \time blend -t 10 -x map-hifi chm13v2.0.fa simulated-chm13v2.0-10X.fa > blend-sim10X.paf
 
@@ -47,7 +47,7 @@ winnowmap -t 10 -W repetitive_k15.txt -x map-pb chm13v2.0.fa simulated-chm13v2.0
 
 
 
-\time hifimap HG002_24kb_2SMRT_cells.dc.v0.3.q20.fastq.fixed --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
+LD_LIBRARY_PATH=. \time hifimap HG002_24kb_2SMRT_cells.dc.v0.3.q20.fastq  --reference chm13v2.0.oneline.fa -k 7 -l 31 -d 0.01 -p hifimap-7-31-0.01-1 --threads 10
 
 #Total execution time: 229.499133928s
 #Maximum RSS: 12.61264GB
@@ -100,4 +100,31 @@ winnowmap -W repetitive_k15.txt -x map-pb chm13v2.0.fa HG002_24kb_2SMRT_cells.dc
 #minimizer-lookup: 0 dp: 0 rmq: 0 rmq_t1: 0 rmq_t2: 0 rmq_t3: 0 rmq_t4: 0 alignment: 0 0
 #42061.77user 481.00system 1:12:56elapsed 972%CPU (0avgtext+0avgdata 11055884maxresident)k
 
+
+# getting number of Q60 reads from all mappers
+
+ awk '$12 == 60 {print}' pafs/file.paf |awk '{print $1}' |sort|uniq|wc -l
+
+
+# -------------------- the simulated 10X centromeres analysis
+
+
+#preparation of the nocensat reads file
+cat simulated-chm13v2.0-10X.fa|grep ">" |awk -F'!' '{print $2" "$3" "$4}' |sort -n> simulated-chm13v2.0-10X.bed.tmp
+sed 's/ /\t/g' simulated-chm13v2.0-10X.bed.tmp |bedtools sort -i /dev/stdin > simulated-chm13v2.0-10X.bed
+rm -f simulated-chm13v2.0-10X.bed.tmp
+bedtools intersect -b chm13v2.0_censat_v2.0.bed -a simulated-chm13v2.0-10X.bed -wa -v |awk '{print $1"!"$2"!"$3}' > simulated-chm13v2.0-10X.nocensat.txt
+grep --no-group-separator -A1 -wFf simulated-chm13v2.0-10X.censat.txt simulated-chm13v2.0-10X.fa > simulated-chm13v2.0-10X.nocensat.fa
+
+
+#gathering reads not mapped at Q60
+awk '$12 == 60' hifimap.paf|awk '{print $1}'> hifimap.mappedQ60.txt
+wc -l hifimap.mappedQ60.txt
+-> 1448212 hifimap.mappedQ60.txt
+grep -vFwf hifimap.mappedQ60.txt simulated-chm13v2.0-10X.txt > hifimap.unmappedQ60.txt
+
+grep -Fwf hifimap.unmappedQ60.txt  simulated-chm13v2.0-10X.nocensat.fa|wc -l
+-> 2803
+$ wc -l hifimap.unmappedQ60.txt
+-> 42198 hifimap.unmappedQ60.txt
 

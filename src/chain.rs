@@ -1,52 +1,31 @@
 // chain.rs
-// Contains the "Chain" struct, which is a Vec of Hits, and various necessary operations to filter out bad Hits.
+// Contains the "Chain" struct, which is a Vec of matches, and various necessary operations to filter out bad matches.
 
-use crate::{Entry, Hit, Index, Kminmer, Match, Params};
+use crate::{Entry, Index, r#match::Match, Params, PseudoChainCoords, PseudoChainCoordsTuple};
 use std::collections::HashMap;
 use std::fmt;
 
+#[derive(Clone, Debug, PartialEq)]
 pub struct Chain {
-    hits: Vec<Hit>,
+    matches: Vec<Match>,
 }
 impl Chain {
 
-    // New Chain from &Vec of Hits.
-    pub fn new(hits: &Vec<Hit>) -> Self {
-        Chain {hits: hits.to_vec()}
+    // New Chain from &Vec of matches.
+    pub fn new(matches: &Vec<Match>) -> Self {
+        Chain {matches: matches.to_vec()}
     }
 
     // An empty Chain object.
     pub fn empty() -> Self {
-        Chain {hits: Vec::new()}
+        Chain {matches: Vec::new()}
     }
 
-    // Generate a new Chain from Hits that are only in the forward direction.
-    pub fn get_fwd(&self) -> Chain {
-        let fwd = self.hits.iter().filter(|h| !h.rc).cloned().collect::<Vec<Hit>>();
-        Chain::new(&fwd)
+    pub fn filter_match_span(&mut self) {
+        self.matches.retain(|h| h.span_diff() < (h.r_span()));
     }
 
-    // Generate a new Chain from Hits that are only in the reverse direction.
-    pub fn get_rc(&self) -> Chain {
-        let rc = self.hits.iter().filter(|h| h.rc).cloned().collect::<Vec<Hit>>();
-        Chain::new(&rc)
-    }
-
-    // Get the sum of all scores from the Hits in the Chain.
-    pub fn get_score(&self) -> usize {
-        return self.hits.iter().map(|h| h.score).sum::<usize>();
-    }
-
-    // Get the Hit that has the maximum score in the Chain.
-    pub fn get_max_score(&self) -> &Hit {
-        return self.hits.iter().max_by(|a, b| a.score.cmp(&b.score)).unwrap();
-    }
-
-    pub fn filter_hit_span(&mut self) {
-        self.hits.retain(|h| h.span_diff() < (h.r_span()));
-    }
-
-    // Get the total difference in span (difference between length of query covered by a Hit and length of reference covered by the Hit) of the Chain.
+    // Get the total difference in span (difference between length of query covered by a Match and length of reference covered by the Match) of the Chain.
     pub fn span_diff(&self) -> usize {
         let mut s = 0;
         for i in 0..self.len() {
@@ -56,171 +35,251 @@ impl Chain {
         s
     }
 
-    // Get total number of k-min-mer matches in the Chain (a Hit can have multiple consecutive k-min-mer matches).
+    // Get total number of k-min-mer matches in the Chain (a Match can have multiple consecutive k-min-mer matches).
     pub fn get_count(&self) -> usize {
-        return self.hits.iter().map(|h| h.count).sum::<usize>();
+        return self.matches.iter().map(|h| h.count).sum::<usize>();
     }
 
-    // Get the Hit that has the maximum number of consecutive k-min-mer matches.
-    pub fn get_max_count(&self) -> &Hit {
-        return self.hits.iter().max_by(|a, b| a.count.cmp(&b.count)).unwrap();
-    }
-
-    // Get the number of Hits in the Chain.
+    // Get the number of matches in the Chain.
     pub fn len(&self) -> usize {
-        return self.hits.len()
+        return self.matches.len()
     } 
 
     // Check if the Chain is empty.
     pub fn is_empty(&self) -> bool {
-        self.hits.is_empty()
+        self.matches.is_empty()
     }
 
-    // Check if the Chain contains the Hit.
-    pub fn contains(&self, h: &Hit) -> bool {
-        self.hits.contains(h)
+    // Check if the Chain contains the Match.
+    pub fn contains(&self, h: &Match) -> bool {
+        self.matches.contains(h)
     }
 
-    // Return a raw Vec of Hits.
-    pub fn hits(&self) -> Vec<Hit> {
-        self.hits.to_vec()
+    // Return a raw Vec of matches.
+    pub fn matches(&self) -> &Vec<Match> {
+        &self.matches
     }
 
-    // Get the first Hit in the Chain.
-    pub fn first(&self) -> &Hit {
-        &self.hits[0]
+    // Get the first Match in the Chain.
+    pub fn first(&self) -> &Match {
+        &self.matches[0]
     }
 
-    // Get the last Hit in the Chain.
-    pub fn last(&self) -> &Hit {
-        &self.hits[self.len() - 1]
+    // Get the last Match in the Chain.
+    pub fn last(&self) -> &Match {
+        &self.matches[self.len() - 1]
     }
 
-    // Get the nth Hit in the Chain.
-    pub fn nth(&self, i: usize) -> &Hit {
-        &self.hits[i]
+    // Get the nth Match in the Chain.
+    pub fn nth(&self, i: usize) -> &Match {
+        &self.matches[i]
     }
 
-    // Remove the ith Hit in the Chain.
+    // Remove the ith Match in the Chain.
     pub fn remove(&mut self, i: usize) {
-        self.hits.remove(i);
+        self.matches.remove(i);
     }
 
-    // Reverse the order of Hits in the Chain.
+    // Reverse the order of matches in the Chain.
     pub fn reverse(&mut self) {
-        self.hits.reverse();
+        self.matches.reverse();
     }
 
-    // Check if two Hits in the Chain are "compatible": 
-
-    // a tuple of Hits (u, v) are compatible if:
-
-    // query start locations, 
-    // query end locations,
-    // query k-min-mer offsets,
-    // reference start locations, 
-    // reference end locations,
-    // reference k-min-mer offsets,
-
-    // are strictly increasing in the forward direction, or
-
-    // query start locations, 
-    // query end locations,
-    // query k-min-mer offsets,
-
-    // are strictly increasing, and
-
-    // reference start locations, 
-    // reference end locations,
-    // reference k-min-mer offsets,
-
-    // are strictly decreasing in the reverse direction.
-
-    // plus, the difference between 
-
-    // the distance between the query starting locations of u and v //// the distance between the reference starting locations of u and v 
-    
-    // needs to be small (less than twice the distance between the query starting locations of u and v).
-    pub fn is_edge(&self, i: usize, j: usize, q_len: usize) -> bool {
-        let u = &self.nth(i);
-        let v = &self.nth(j);
-        if !u.rc {
-            if u.r_start < v.r_start &&
-            u.r_end < v.r_end &&
-            u.r_offset < v.r_offset &&
-            u.q_start < v.q_start &&
-            u.q_end < v.q_end &&
-            u.q_offset < v.q_offset &&
-            (v.r_start - u.r_start) < (v.q_start - u.q_start) * 2 {
-                return true;
-            }
+    pub fn check_match_compatible(&self, h1: &Match, h2: &Match, g: usize) -> bool {
+        if h1 == h2 {return true;}
+        if h1.rc != h2.rc {return false;}
+        let (u, v) = match h1.q_start < h2.q_start {
+            true => (h1, h2),
+            false => (h2, h1),
+        };
+        let mut u_q_s = u.q_start;
+        let mut u_q_e = u.q_end;
+        let mut v_q_s = v.q_start;
+        let mut v_q_e = v.q_end;
+        let mut u_r_s = u.r_start;
+        let mut u_r_e = u.r_end;
+        let mut v_r_s = v.r_start;
+        let mut v_r_e = v.r_end;
+        if u.rc {
+            if (self.rc_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.rc_gap_too_long(u_r_s, u_q_e, v_q_s, v_r_e, g)) {return false;}
         }
-        else if u.rc {
-            if u.r_start > v.r_start &&
-            u.r_end > v.r_end &&
-            u.r_offset > v.r_offset &&
-            u.q_start < v.q_start &&
-            u.q_end < v.q_end &&
-            u.q_offset < v.q_offset &&
-            (u.r_start - v.r_start) < (v.q_start - u.q_start) * 2 {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // Check if a given chain is "consistent": 
-    
-    // A chain c is "consistent" if all consecutive tuples (u, v) of Hits are compatible.
-
-    // This function does a linear pass between all consecutive tuples (u, v), and if u and v are not compatible, removes v from the Chain. If there are no incompatible tuples, it returns true; otherwise it returns false.
-    pub fn consistent(&mut self, q_len: usize) -> bool {
-        let mut rem_self_v = Vec::<Hit>::new();
-        let mut prev_i = 0;
-        for i in 1..self.len() {
-            if !self.is_edge(prev_i, i, q_len) {
-                rem_self_v.push(self.nth(i).clone());
-            }
-            else {prev_i = i;}
-        }
-        let mut rem_self = Chain::new(&rem_self_v);
-        if rem_self_v.is_empty() {return true;}
-        self.retain_complement(&rem_self);  
-        return false;
-    } 
-
-    pub fn check_hits(&self) -> bool {
-        for i in 1..self.len() {
-            let mut prev_h = self.nth(i-1);
-            let mut curr_h = self.nth(i);
-            let b = self.check_hit_compatible(prev_h, curr_h);
-            if !b {return false;}
+        else {
+            if (self.fwd_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.fwd_gap_too_long(u_q_e, u_r_e, v_q_s, v_r_s, g)) {return false;} 
         }
         return true;
     }
 
-    pub fn fwd_gap_start_too_long(&self, u_q_s: usize, u_r_s: usize, v_q_s: usize, v_r_s: usize) -> bool {
-        (((v_q_s - u_q_s) as i32 - (v_r_s - u_r_s) as i32).abs() > 2000)
+    pub fn retain_unique(&mut self) {
+        let len = self.len();
+        let mut remove_match_indices = vec![false; len];
+        for i in 0..self.len() {
+            let h_i = self.nth(i);
+            let h_c = self.matches.iter().filter(|hp| hp.r_start == h_i.r_start && hp.r_end == h_i.r_end && hp.rc == h_i.rc).count();
+            if h_c > 1 {remove_match_indices[i] = true;}
+        }
+        self.matches = (0..len).filter(|i| !remove_match_indices[*i]).map(|i| self.nth(i).clone()).collect::<Vec<Match>>();
+
     }
 
-    pub fn rc_gap_start_too_long(&self, u_q_s: usize, u_r_s: usize, v_q_s: usize, v_r_s: usize) -> bool {
-        (((v_q_s - u_q_s) as i32 - (u_r_s - v_r_s) as i32).abs() > 2000)
+    pub fn colinear_idx_per_match(&self, h: &Match, g: usize) ->  Vec<usize> {
+        let col = (0..self.len()).filter(|i| self.check_match_compatible(h, self.nth(*i), g)).collect::<Vec<usize>>();
+        col
+    }
+    pub fn colinear_matches_per_match(&self, h: &Match, g: usize) ->  (Vec<&Match>, usize) {
+        let mut col = Vec::new();
+        let mut tot = 0;
+        for hp in self.matches.iter() {
+            if self.check_match_compatible(h, hp, g) {
+                col.push(hp);
+                tot += hp.count;
+            }
+        }
+        (col, tot)
     }
 
-    pub fn fwd_gap_end_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (((v_q_e - u_q_e) as i32 - (v_r_e - u_r_e) as i32).abs() > 2000)
+    pub fn check_colinear_match_set(&self, col: &Vec<usize>, g: usize) -> (Vec<usize>, usize) {
+        let mut remove_h = HashMap::<usize, Vec<usize>>::new();
+        let mut remove_count : i32 = 0;
+        let mut to_remove = vec![false; self.len()];
+
+        for idx_i in 0..col.len() - 1 {
+            let i = col[idx_i];
+            let mut h_i = self.nth(i);
+            for idx_j in idx_i..col.len() {
+                let j = col[idx_j];
+                let mut h_j = self.nth(j);
+                if !self.check_match_compatible(h_i, h_j, g) {
+                    remove_h.entry(i).or_insert(Vec::new()).push(j);
+                    remove_h.entry(j).or_insert(Vec::new()).push(i);
+                    remove_count += 1;
+                }
+            }
+        } 
+        if remove_count > 0 {
+            let mut remove_v = remove_h.into_iter().collect::<Vec<(usize, Vec<usize>)>>();
+            remove_v.sort_by(|a, b| a.1.len().cmp(&b.1.len()));
+            remove_v.reverse();
+            for i in 0..remove_v.len() {
+                let (max_to_remove, max_v) = &remove_v[i];
+                //eprintln!("SAVED!{}!{}", remove_count, self.nth(*max_to_remove));
+                to_remove[*max_to_remove] = true;
+                remove_count -= max_v.len() as i32;
+                if remove_count <= 0 {break;}
+            }
+        }
+        let mut score = col.iter().map(|i| self.nth(*i).count).sum::<usize>();
+        let col_f = (0..col.len()).map(|idx_i| col[idx_i]).filter(|i| !to_remove[*i]).collect::<Vec<usize>>();
+        (col_f, score)
     }
 
-    pub fn rc_gap_end_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (((v_q_e - u_q_e) as i32 - (u_r_e - v_r_e) as i32).abs() > 2000)
+    pub fn check_colinear(&mut self, g: usize) {
+        let len = self.len();
+        let mut max_col = Vec::<usize>::new();
+        let mut max_score = 0;
+        for i in 0..len {
+            let h_i = self.nth(i);
+            let col = self.colinear_idx_per_match(h_i, g);
+            let (col_f, score) = self.check_colinear_match_set(&col, g);
+            if score > max_score {
+                max_col = col_f;
+                max_score = score;
+            }
+        }
+        self.matches = max_col.iter().map(|i| self.nth(*i).clone()).collect::<Vec<Match>>();
     }
 
-    pub fn fwd_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
+    pub fn filter_matches(&mut self, g: usize) {
+
+        let len = self.len();
+        if len == 0 {return;}
+        let mut max_chain = Vec::new();
+        let mut max_count = 0;
+        for i in 0..len {
+            let h = self.nth(i);
+            let (chain, count) = self.colinear_matches_per_match(h, g);
+            if count > max_count {
+                max_chain = chain;
+                max_count = count;
+            }
+        }
+        //let max_chain = self.colinear_matches_per_match(self.matches.iter().max_by(|a, b| self.colinear_matches_per_match(a, g).iter().map(|h| h.count).sum::<usize>().cmp(&self.colinear_matches_per_match(b, g).iter().map(|hp| hp.count).sum::<usize>())).unwrap(), g);
+        self.matches = max_chain.into_iter().cloned().collect();
+        //self.sort_by_q_start();
     }
 
-    pub fn rc_gap_too_long(&self, u_q_s: usize, u_r_s: usize, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, v_q_e: usize, v_r_e: usize) -> bool {
-        (self.rc_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.rc_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e))
+    pub fn find_largest_two_matches(&self) -> (usize, usize) {
+        let mut max = 0;
+        let mut max_count = 0;
+        let mut second_max = 0;
+        let mut second_max_count = 0;
+        for i in 0..self.len() {
+            let count = self.nth(i).count;
+            if count > max_count {
+                second_max = max;
+                second_max_count = max_count;
+                max = i;
+                max_count = count;
+            } else if count > second_max_count {
+                second_max = i;
+                second_max_count = count;
+            }
+        }
+        (max, second_max)
+    }
+
+    pub fn find_largest_match(&self) -> usize {
+        let mut max = 0;
+        let mut max_count = 0;
+        for i in 0..self.len() {
+            let count = self.nth(i).count;
+            if count > max_count {
+                max = i;
+                max_count = count;
+            }
+        }
+        max
+    }
+
+    pub fn filter_matches_c(&mut self, g: usize, c: usize) {
+        let len = self.len();
+        let mut sorted_idx = (0..len).collect::<Vec<usize>>();
+        sorted_idx.sort_by(|a, b| self.nth(*a).count.cmp(&self.nth(*b).count));
+        let mut max_chain = Vec::new();
+        let mut max_count = 0;
+        for i in 0..c {
+            let max_i = sorted_idx[len - 1 - i];
+            let (chain, count) = self.colinear_matches_per_match(self.nth(max_i), g);
+            if count > max_count {
+                max_chain = chain;
+                max_count = count;
+            }
+        }
+        self.matches = max_chain.into_iter().cloned().collect();
+    }
+
+    pub fn filter_matches_max(&mut self, g: usize) {
+        let len = self.len();
+        if len <= 1 {return;}
+        let max = self.find_largest_match();
+        let (max_chain, tot) = self.colinear_matches_per_match(self.nth(max), g);
+        self.matches = max_chain.into_iter().cloned().collect();
+        //self.sort_by_q_start();
+    }
+
+
+    pub fn fwd_gap_too_long(&self, u_q_e: usize, u_r_e: usize, v_q_s: usize, v_r_s: usize, g: usize) -> bool {
+       // (self.fwd_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.fwd_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e) )
+
+       let g_1 = v_q_s as i32 - u_q_e as i32;
+       let g_2 = v_r_s as i32 - u_r_e as i32;
+       (g_1 - g_2).abs() as usize > g
+    }
+
+    pub fn rc_gap_too_long(&self, u_r_s: usize, u_q_e: usize, v_q_s: usize, v_r_e: usize, g: usize) -> bool {
+        //(self.rc_gap_start_too_long(u_q_s, u_r_s, v_q_s, v_r_s) ||self.rc_gap_end_too_long(u_q_e, u_r_e, v_q_e, v_r_e))
+        let g_1 = v_q_s as i32 - u_q_e as i32;
+        let g_2 = u_r_s as i32- v_r_e as i32;
+        (g_1 - g_2).abs() as usize > g
     }
 
 
@@ -241,226 +300,63 @@ impl Chain {
     }
 
     pub fn fwd_inconsistent(&self, u_r_s: usize, v_r_s: usize, u_r_e: usize, v_r_e: usize) -> bool {
-        (self.fwd_start_inconsistent(u_r_s, v_r_s) || self.fwd_end_inconsistent(u_r_e, v_r_e))
+        (self.fwd_start_inconsistent(u_r_s, v_r_s)) //|| self.fwd_end_inconsistent(u_r_e, v_r_e))
     }
     pub fn rc_inconsistent(&self, u_r_s: usize, v_r_s: usize, u_r_e: usize, v_r_e: usize) -> bool {
-        (self.rc_start_inconsistent(u_r_s, v_r_s) || self.rc_end_inconsistent(u_r_e, v_r_e))
+        (self.rc_start_inconsistent(u_r_s, v_r_s)) //|| self.rc_end_inconsistent(u_r_e, v_r_e))
     }
 
-
-    pub fn check_hit_compatible(&self, h_1: &Hit, h_2: &Hit) -> bool {
-        if h_1 == h_2 {return true;}
-        let mut u = h_1;
-        let mut v = h_2;
-        if (h_1.q_start > h_2.q_start) {v = h_1; u = h_2;}
-        let mut u_q_s = u.q_start;
-        let mut u_q_e = u.q_end;
-        let mut v_q_s = v.q_start;
-        let mut v_q_e = v.q_end;
-        let mut u_r_s = u.r_start;
-        let mut u_r_e = u.r_end;
-        let mut v_r_s = v.r_start;
-        let mut v_r_e = v.r_end;
-        if u.rc {
-            u_r_s = u.r_end;
-            u_r_e = u.r_start;
-            v_r_s = v.r_end;
-            v_r_e = v.r_start;
-            if (self.rc_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.rc_gap_too_long(u_q_s, u_r_s, u_q_e, u_r_e, v_q_s, v_r_s, v_q_e, v_r_e)) {return false;}
-        }
-        else {
-            if (self.fwd_inconsistent(u_r_s, v_r_s, u_r_e, v_r_e) || self.fwd_gap_too_long(u_q_s, u_r_s, u_q_e, u_r_e, v_q_s, v_r_s, v_q_e, v_r_e)) {return false;} 
-        }
-        return true;
-    }
-
-    // Sort the Chain by the query k-min-mer offsets of the Hits.
-    pub fn sort_by_q_offset(&mut self) {
-        self.hits.sort_by(|a, b| a.q_offset.cmp(&b.q_offset));
-    }
-
-    // Sort the Chain by the reference k-min-mer offsets of the Hits.
-    pub fn sort_by_r_offset(&mut self) {
-        self.hits.sort_by(|a, b| a.q_offset.cmp(&b.r_offset));
-    }
-
-
-    // Find an "equivalence class" of a Hit in the Chain:
-
-    // A Hit h_p is in the "equivalence class" E(h) of a Hit h if the absolute difference of the k-min-mer offset differences of h and h_p are below some threshold g (see hit.rs for a definition of offset difference in the context of a Hit).
-    pub fn find_eq_class(&self, h: &Hit, g: usize) -> Chain {
-        let c = self.hits.iter().filter(|h_p| (h_p.offset_diff() as i32 - h.offset_diff() as i32).abs() < g as i32 && self.check_hit_compatible(h, h_p)).cloned().collect::<Vec<Hit>>();
-        Chain::new(&c)
+    // Sort the Chain by the query k-min-mer offsets of the matches.
+    pub fn sort_by_q_start(&mut self) {
+        self.matches.sort_by(|a, b| a.q_start.cmp(&b.q_start));
     }
 
     // Generate a new Chain that has no elements that also occur in another Chain c.
     pub fn find_complement(&self, c: &Chain) -> Chain {
-        let mut c_p = self.hits.iter().filter(|h| !c.contains(h)).cloned().collect::<Vec<Hit>>();
+        let mut c_p = self.matches.iter().filter(|h| !c.contains(h)).cloned().collect::<Vec<Match>>();
         Chain::new(&c_p)
     }
 
     // Modify this particular Chain so that it has no elements that also occur in another Chain c.
     pub fn retain_complement(&mut self, c: &Chain) {
-        self.hits.retain(|h| !c.contains(h));
+        self.matches.retain(|h| !c.contains(h));
     }
 
     // Replace this Chain object with another Chain c.
     pub fn replace(&mut self, c: &Chain) {
-        self.hits = c.hits().to_vec();
+        self.matches = c.matches().to_vec();
     }
 
-    // Find the longest equivalence class: argmax(len(E(h))) for all Hits h in the Chain.
-    pub fn find_best_eqc(&self, g: usize) -> Chain {
-        let mut best_eqc = Chain::empty();
-        for i in 0..self.len() {
-            let mut eqc = self.find_eq_class(self.nth(i), g);
-            if eqc.len() > best_eqc.len() {best_eqc = eqc;}
-            else if eqc.len() == best_eqc.len() {
-                if eqc.get_count() >= best_eqc.get_count() {
-                    best_eqc = eqc;
-                }
-            }
-        }
-        best_eqc
-    }
-
-    // Find the second longest equivalence class in the Chain (this is useful for MAPQ calculations).
-    pub fn find_best_2eqc(&self, best_eqc: &Chain, g: usize) -> Chain {
-        let mut rest = self.find_complement(best_eqc);
-        rest.find_best_eqc(g)
-    }
-
-    // Obtain a MAPQ score, given the two longest equivalence classes. 
-    
-    // MAPQ score defaults to 60 if the second longest equivalence class is empty, or if the longest equivalence class has length > 3.
-
-    // For all pairs of equivalence classes with MAPQ < 60, MAPQ score defaults to 1 if the longest equivalence class has length <= 3.
-    pub fn get_mapq(&mut self, g: usize, k: usize) -> usize {
-        let mut mapq = 1;
-        let mut best_eqc = self.find_best_eqc(g);
-        let mut second_eqc = self.find_best_2eqc(&best_eqc, g);
-        //println!("EQC1!CNT!{}!{}", best_eqc, best_eqc.get_count());
-        //println!("EQC2!CNT!{}!{}", second_eqc, second_eqc.get_count());
-        if !second_eqc.is_empty() {
-            mapq = kminmer_mapq(best_eqc.get_count(), second_eqc.get_count());
-        }
-        else if best_eqc.len() > 3 || best_eqc.get_count() > (k + 1) * 3 {mapq = 60;}
-        best_eqc.sort_by_q_offset();
-        self.replace(&best_eqc);
-        mapq
-    }
-
-    // Calculates the MAPQ score for the Chain (by computing the two longest equivalence classes), sorts the Chain by the query k-min-mer offsets, and checks for consistency.
-
-    // MAPQ score defaults to 60 if the resulting Chain (the longest equivalence class) has length > 3, and 1 otherwise.
-    pub fn partition(&mut self, params: &Params, q_len: usize) -> (usize, usize) {
-        let mut g = 1000;
-        let mut k = params.k; // This could be added to Params later.
-        let mut mapq = 0;
-        if self.len() > 1 {
-            mapq = self.get_mapq(g, k);
-            //println!("PREVQ!{}!{}", mapq, self);
-            if self.len() > 3 {mapq = 60;}
-            //println!("CURRQ!{}!{}", mapq, self);
-            if mapq < 60 && mapq >= 1 {
-                if self.len() <= 3 && self.get_count() < (params.k + 1) * 3 {
-                    mapq = 1;
-                    //println!("CURRQ!{}!{}", mapq, self);
-                } 
-            }
-        }
-        if mapq <= 1 {
-            if self.get_count() > (2*k) - 3 {
-                mapq = 40;
-            }
-            //println!("CURRQ!{}!{}", mapq, self);
-        }
-        (mapq, self.get_count())
-    }
-    
-    // Extends the first and last Hit locations in the Chain to the length of the query.
-    pub fn find_coords(&mut self, rc: bool, r_id: &str, r_len: usize, q_id: &str, q_len: usize, mapq: usize) -> Match {
-        let first = self.first();
-        let last = self.last();
-        let mut q_start = first.q_start;
-        let mut q_end = last.q_end;
-        let mut r_start = first.r_start;
-        let mut r_end = last.r_end;
-        if rc {
-            r_start = last.r_end;
-            r_end = first.r_start;
-        }
-        let mut score = self.get_count();
-        let mut final_r_start = 0;
-        let mut final_r_end = 0;
-        let mut final_q_start = 0;
-        let mut final_q_end = 0;
-        let mut exc_s = 0;
-        let mut exc_e = 0;
-
-        if !rc {
-            if r_start >= q_start {
-                final_r_start = r_start - q_start;
-                exc_s = q_start;
-            }
-            else {
-                final_r_start = 0;
-                exc_s = r_start;
-            }
-            if r_end + (q_len - q_end - 1) <= r_len - 1 {
-                final_r_end = r_end + (q_len - q_end - 1);
-                exc_e = q_len - q_end - 1;
-            }
-            else {
-                final_r_end = r_len - 1;
-                exc_e = r_len - r_end - 1;
-            }
-        }
-        else {
-            if r_end + q_start <= r_len - 1 {
-                final_r_end = r_end + q_start;
-                exc_s = q_start;
-            }
-            else {
-                final_r_end = r_len - 1;
-                exc_s = r_len - r_end - 1;
-            }
-            if r_start >= (q_len - q_end - 1) {
-                final_r_start = r_start - (q_len - q_end - 1);
-                exc_e = q_len - q_end - 1;
-            }
-            else {
-                final_r_start = 0;
-                exc_e = r_start;
-            }
-        }
-        final_q_start = q_start - exc_s;
-        final_q_end = q_end + exc_e;
-        let m = (q_id.to_string(), r_id.to_string(), q_len, r_len, final_q_start, final_q_end, final_r_start, final_r_end, score, rc, mapq);
-        m
-    }
-
-    // Wrapper function that filters bad Hits, checks for consistency, and obtains final coordinates.
+    // Wrapper function that filters bad matches, checks for consistency, and obtains final coordinates.
 
     // Outputs a Match object (see mers.rs for a definition).
-    pub fn get_match(&mut self, r_id: &str, r_len: usize, q_id: &str, q_len: usize, params: &Params) -> Option<Match> {
-        let mut fwd = self.get_fwd();
-        let mut rc = self.get_rc();
-        let (fwd_mapq, fwd_score) = fwd.partition(&params, q_len);
-        let (rc_mapq, rc_score) = rc.partition(&params, q_len);
-        let mut is_rc = (rc_score > fwd_score);
-        if is_rc {self.replace(&rc);}
-        else {self.replace(&fwd);}
-        if self.is_empty() {return None;}
-        let mut mapq = match is_rc {
-            true => rc_mapq,
-            false => fwd_mapq,
+    pub fn get_match(&mut self, params: &Params) -> Option<PseudoChainCoords> {
+        let mut len = self.len();
+        if len > 1 {
+            //self.retain_unique();
+            //self.filter_matches_c(params.g, len - 1);
+            self.filter_matches_max(params.g);
+            //self.check_colinear(params.g);
+        }
+        let len_f = self.len();
+        if len_f == 0 {return None;}
+        let score = self.get_count(); 
+        let mapq = match (params.s != 0 && params.c != 0) && ((len_f >= params.c) || (score >= params.s)) {
+            true => 60,
+            false => 0,
         };
-        Some(self.find_coords(is_rc, r_id, r_len, q_id, q_len, mapq))
+        let first = self.first();
+        let last = self.last();
+        let rc = first.rc;
+        return match rc && self.len() > 1 {
+            true => Some((rc, first.q_start, last.q_end - 1, last.r_start, first.r_end - 1, score, mapq)),
+            false => Some((rc, first.q_start, last.q_end - 1, first.r_start, last.r_end - 1, score, mapq)),
+        };
     }
+    
 
-    // Obtains query and reference intervals that are not covered by a Hit in the final Chain object (only for base-level alignment).
-    pub fn get_remaining_seqs(&self, m: &Match) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    // Obtains query and reference intervals that are not covered by a Match in the final Chain object (only for base-level alignment).
+    /*pub fn get_remaining_seqs(&self, m: &Match) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
         let mut q_coords = Vec::<(usize, usize)>::new();
         let mut r_coords = Vec::<(usize, usize)>::new();
 
@@ -473,18 +369,18 @@ impl Chain {
                 false => "+",
             };
             for i in 0..self.len() {
-                let hit = self.nth(i);
-                let rc_s = match hit.rc {
+                let match = self.nth(i);
+                let rc_s = match match.rc {
                     true => "-",
                     false => "+",
                 };
-                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, hit.q_start, prev_r_end, hit.r_start);
-                //println!("QMMM!{}!{}!RMMM!{}!{}", hit.q_start, hit.q_end, hit.r_start, hit.r_end); 
-                if prev_q_end < &hit.q_start && &hit.r_start > prev_r_end {
-                    q_coords.push((*prev_q_end, hit.q_start));
-                    r_coords.push((*prev_r_end, hit.r_start));
-                    prev_q_end = &hit.q_end;
-                    prev_r_end = &hit.r_end;
+                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
+                //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
+                if prev_q_end < &match.q_start && &match.r_start > prev_r_end {
+                    q_coords.push((*prev_q_end, match.q_start));
+                    r_coords.push((*prev_r_end, match.r_start));
+                    prev_q_end = &match.q_end;
+                    prev_r_end = &match.r_end;
                 }
             }
             //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, prev_r_end, r_end);
@@ -502,19 +398,19 @@ impl Chain {
                 false => "+",
             };
             for i in 0..self.len() {
-                let hit = self.nth(i);
-                let rc_s = match hit.rc {
+                let match = self.nth(i);
+                let rc_s = match match.rc {
                     true => "-",
                     false => "+",
                 };
-                if hit.r_end < *r_start {break;}
-                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, hit.q_start, prev_r_end, hit.r_start);
-                //println!("QMMM!{}!{}!RMMM!{}!{}", hit.q_start, hit.q_end, hit.r_start, hit.r_end); 
-                if prev_q_end < &hit.q_start && &hit.r_end < prev_r_start {
-                    q_coords.push((*prev_q_end, hit.q_start));
-                    r_coords.push((hit.r_end, *prev_r_start));
-                    prev_q_end = &hit.q_end;
-                    prev_r_start = &hit.r_start;
+                if match.r_end < *r_start {break;}
+                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
+                //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
+                if prev_q_end < &match.q_start && &match.r_end < prev_r_start {
+                    q_coords.push((*prev_q_end, match.q_start));
+                    r_coords.push((match.r_end, *prev_r_start));
+                    prev_q_end = &match.q_end;
+                    prev_r_start = &match.r_start;
                 }
             }
             //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, r_start, prev_r_start);
@@ -524,7 +420,7 @@ impl Chain {
             }
         }
         (q_coords, r_coords)
-    } 
+    } */
 }
 
 // Pretty-prints a Chain.

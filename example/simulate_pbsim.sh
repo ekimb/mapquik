@@ -4,20 +4,20 @@
 ref=ecoli.genome.100k.fa
 reads=nearperfect-ecoli.10X.100k
 
-ref=ecoli.genome.fa
+ref=ecoli.genome.renamed.fa
 reads=nearperfect-ecoli.10X
 
 pbsim \
        $ref \
-       --model_qc  ~/model_qc_clr \
+       --model_qc model_qc_clr \
        --accuracy-mean 0.99\
        --accuracy-sd 0\
        --depth 10\
        --prefix $reads\
-       --length-mean 12000 #hifi
+       --length-mean 24000 #hifi
 
 #paftools.js pbsim2fq <ref.fa.fai> <pbsim1.maf> [[pbsim2.maf] ...]
-paftools.js pbsim2fq $ref.fai "$reads"_000*.maf > $reads.fa
+paftools.js pbsim2fq $ref.fai "$reads"_00*.maf > $reads.fa
 
-rm -rf  "$reads"_000*
+rm -rf  "$reads"_00*
 

@@ -1,8 +1,8 @@
 [package]
 name = "hifimap"
 version = "0.1.0"
-authors = ["ekimb, rayan, ksahlin"]
-edition = "2018"
+authors = ["ekimb, rayan"]
+edition = "2021"
 default-run = "hifimap"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -39,15 +39,18 @@ lzzzz = "0.7"
 xx-bloomfilter = "0.10.0"
 flate2 = "1.0.6"
 glob = "0.3.0"
-dashmap = "3.11.10"
+dashmap = "5.4.0"
 thread-id = "3.3.0"
 indicatif = "0.16.2"
 histo = "0.1.0"
 rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
-libwfa = { git = "https://github.com/rchikhi/rs-wfa" }
-#libwfa = "0.1"
+libwfa = "0.1"
 rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
-
+#rust-seq2kminmers = { path = "/pasteur/appa/homes/rchikhi/tools/rust-seq2kminmers" }
+fxhash = "0.2.1"
+chrono = "0.4.22"
+[target.'cfg(not(target_env = "msvc"))'.dependencies]
+tikv-jemallocator = "0.5"
 
 [profile.dev]
 opt-level = 3

@@ -15,6 +15,9 @@ use std::io::{BufRead, BufReader};
 use std::collections::HashMap;
 use std::fs::{File};
 use std::collections::HashSet;
+#[cfg(not(target_env = "msvc"))]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 extern crate array_tool;
 use std::fs;
 use structopt::StructOpt;
@@ -31,28 +34,33 @@ use std::cell::UnsafeCell;
 use std::io::Result;
 use core::hash::{Hash, Hasher};
 use std::collections::hash_map::DefaultHasher;
-use crate::index::{Entry, Index};
-use crate::mers::{Match, AlignCand};
-use crate::hit::Hit;
-use crate::chain::{Chain, kminmer_mapq};
-use rust_seq2kminmers::Kminmer;
+use chrono::{Utc};
+use crate::index::{Entry, Index, ReadOnlyIndex};
+use crate::mers::{AlignCand};
+use crate::stats::Stats;
+use crate::chain::{Chain};
+use rust_seq2kminmers::{KminmerType, Kminmer, H, FH, KH};
 mod closures;
 mod mers;
-mod nthash_hpc;
 mod align;
 mod index;
-mod hit;
+mod stats;
+mod r#match;
 mod chain;
 
 type ThreadIdType = usize;
+pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
+pub type PseudoChainCoordsTuple<'a> = (usize, (bool, usize, usize, usize, usize, usize, usize));
 pub struct Params {
     k: usize,
     l: usize,
-    density: f64,
-    use_hpc: bool, // Rayan to Baris: do we ever map in HPC anymore? let's delete that parameter
+    density: FH,
+    use_hpc: bool,
     debug: bool,
-    f: usize,
     a: bool,
+    c: usize, // minimum chain length
+    s: usize, // minimum match score (# of matching seeds)
+    g: usize, // maximum gap difference
 }
 
 /// Try to get memory usage (resident set size) in bytes using the `getrusage()` function from libc.
@@ -125,12 +133,22 @@ struct Opt {
     /// fraction of l-mers that will be selected as
     /// minimizers from a read.
     #[structopt(short, long)]
-    density: Option<f64>,
-    /// Filter cutoff value
+    density: Option<FH>,
+    /// Minimum chain length
     ///
-    /// Ignores hits of > f locations.
+    /// Only outputs chains of length >= c.
     #[structopt(short, long)]
-    f: Option<usize>,
+    chain: Option<usize>,
+    /// Minimum number of matching seeds
+    ///
+    /// Only outputs chains of >= s matching seeds.
+    #[structopt(short, long)]
+    seed: Option<usize>,
+    /// Maximum nucleotide gap length difference
+    ///
+    /// Allows chaining of hits with a gap difference of < g.
+    #[structopt(short, long)]
+    gap_diff: Option<usize>,
     /// Reference genome input
     ///
     /// Reference to be indexed and mapped to. 
@@ -143,6 +161,9 @@ struct Opt {
     threads: Option<usize>,
     #[structopt(short, long)]
     align: bool,
+    #[structopt(long)]
+    low_memory: bool,
+
 }
 
 fn main() {
@@ -153,27 +174,35 @@ fn main() {
     let mut output_prefix;
     let mut k : usize = 5;
     let mut l : usize = 31;
-    let mut f : usize = 1;
+    let mut c = 4;
+    let mut s = 11;
+    let mut g = 2000;
+    let mut low_memory = opt.low_memory;
     let a = opt.align;
-    let mut density : f64 = 0.01;
+    let mut density : FH = 0.01;
     let reference : bool = false;
     let mut use_hpc : bool = true; // hardcoded to true
+    if use_hpc {
+        println!("Using HPC ntHash");
+    } else {
+        println!("Using regular ntHash (not HPC)");
+    }
     let mut threads : usize = 8;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
     if filename.as_os_str().is_empty() {panic!("Please specify an input file.");}
     if ref_filename.as_os_str().is_empty() {panic!("Please specify a reference file.");}
-    let mut fasta_reads : bool = false;
-    let mut ref_fasta_reads : bool = false;
+    let mut reads_are_fasta : bool = false;
+    let mut ref_is_fasta    : bool = false;
     let filename_str = filename.to_str().unwrap();
-    if filename_str.contains(".fasta.") || filename_str.contains(".fa.") || filename_str.ends_with(".fa") || filename_str.ends_with(".fasta") { // not so robust but will have to do for now
-        fasta_reads = true;
+    if filename_str.contains(".fasta.") || filename_str.ends_with(".fna") || filename_str.contains(".fna.") || filename_str.contains(".fa.") || filename_str.ends_with(".fa") || filename_str.ends_with(".fasta") { // not so robust but will have to do for now
+        reads_are_fasta = true;
         println!("Input file: {}", filename_str);
         println!("Format: FASTA");
     }
     let ref_filename_str = ref_filename.to_str().unwrap();
-    if ref_filename_str.contains(".fasta.") || ref_filename_str.contains(".fa.") || ref_filename_str.ends_with(".fa") || ref_filename_str.ends_with(".fasta") { // not so robust but will have to do for now
-        ref_fasta_reads = true;
+    if ref_filename_str.contains(".fasta.") || ref_filename_str.ends_with(".fna") || ref_filename_str.contains(".fna.") || ref_filename_str.contains(".fa.") || ref_filename_str.ends_with(".fa") || ref_filename_str.ends_with(".fasta") { // not so robust but will have to do for now
+        ref_is_fasta = true;
         println!("Reference file: {}", ref_filename_str);
         println!("Format: FASTA");
     }
@@ -181,7 +210,9 @@ fn main() {
     if opt.l.is_some() {l = opt.l.unwrap()} else {println!("Warning: Using default l value ({}).", l);}
     if opt.density.is_some() {density = opt.density.unwrap()} else {println!("Warning: Using default density value ({}%).", density * 100.0);}
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
-    if opt.f.is_some() {f = opt.f.unwrap()} else {println!("Warning: Using default max count ({}).", f);}
+    if opt.chain.is_some() {c = opt.chain.unwrap()} else {println!("Warning: Using default minimum chain length ({}).", c);}
+    if opt.seed.is_some() {s = opt.seed.unwrap()} else {println!("Warning: Using default minimum number of matching seeds ({}).", s);}
+    if opt.gap_diff.is_some() {g = opt.gap_diff.unwrap()} else {println!("Warning: Using default maximum seed gap difference ({}).", g);}
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let debug = opt.debug;
@@ -191,8 +222,10 @@ fn main() {
         density,
         use_hpc,
         debug,
-        f,
         a,
+        c,
+        s,
+        g,
     };
     // init some useful objects
     // get file size for progress bar
@@ -200,13 +233,16 @@ fn main() {
     let ref_metadata = fs::metadata(&ref_filename).expect("Error opening reference file.");
     let file_size = metadata.len();
     let ref_threads = threads;
-    let ref_queue_len = threads;
-    let queue_len = threads; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+    let mut ref_queue_len = threads;
+    if low_memory {ref_queue_len = 1;}
+    let queue_len = 200; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
+    Stats::init(threads, output_prefix.to_str().unwrap());
 
     //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
-    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
+    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);
+    println!("current time after exiting closures {:?}",Utc::now());
     //if params.a {
        // println!("Running WFA...");
        // wfa::run_wfa(&filename, &ref_filename, &matches, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
