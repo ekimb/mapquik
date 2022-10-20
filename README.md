@@ -16,11 +16,11 @@ Clone the repository, and run
 
 ```
 rustup install nightly
-export CARGO_NET_GIT_FETCH_WITH_CLI=true #fix for "failed to authenticate when downloading repository"
+export CARGO_NET_GIT_FETCH_WITH_CLI=true
 cargo +nightly build --release
 ```
 
-The nightly version of cargo is required because hifiasm uses experimental language features (SIMD, intrinsics). The `export` command is needed because libwfa has WFA2 as a git submodule with a SSH url.
+The nightly version of cargo is required because hifiasm uses experimental language features (SIMD, intrinsics). The `export` command is needed because libwfa has WFA2 as a git submodule with a SSH url. It fixes the error "failed to authenticate when downloading repository".
 
 ## Quick start
 
