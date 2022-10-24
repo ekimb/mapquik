@@ -13,10 +13,8 @@ fasthash = "0.4.0"
 #generic-array = "0.13.2" #activate if using kmer_array
 #typenum = "1.11.2"
 structopt = "0.3.1"
-itertools = "0.8.0"
 array_tool = "1.0.3"
 closure = "0.3.0"
-editdistancewf = "0.1.0"
 libc = "0.2.77"
 bio-types = "0.7.0" # for my reimplementation of needleman-wunsch, bio_types is called by bio too
 #seq_io= { path = "./seq_io" }
@@ -27,7 +25,6 @@ xx-bloomfilter = "0.10.0"
 flate2 = "1.0.6"
 dashmap = "5.4.0"
 thread-id = "3.3.0"
-indicatif = "0.16.2"
 rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
 libwfa = "0.1"
 rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
