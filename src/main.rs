@@ -220,6 +220,10 @@ fn main() {
     let debug = opt.debug;
     if opt.nohpc  { use_hpc = false; }
     if opt.nosimd { use_simd = false; }
+    if ! std::is_x86_feature_detected!("avx512f") { 
+        println!("Falling back to scalar implementation (avx512f not found)");
+        use_simd = false; 
+    }
     if use_hpc {
         if use_simd {
             println!("Using HPC ntHash, with SIMD");
