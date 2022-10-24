@@ -17,7 +17,6 @@ use crate::mers::{AlignCand, Offset};
 use std::path::PathBuf;
 use super::Params;
 use crate::get_reader;
-use indicatif::ProgressBar;
 use std::time::Instant;
 use dashmap::DashSet;
 use crate::index::{Entry, Index, ReadOnlyIndex};

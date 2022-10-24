@@ -7,7 +7,6 @@
 #![allow(non_upper_case_globals)]
 #![allow(warnings)]
 #![feature(iter_advance_by)]
-use indicatif::ProgressBar;
 use std::io::stderr;
 use std::error::Error;
 use std::io::Write;
