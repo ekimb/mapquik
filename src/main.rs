@@ -221,7 +221,7 @@ fn main() {
     if opt.nohpc  { use_hpc = false; }
     if opt.nosimd { use_simd = false; }
     if ! std::is_x86_feature_detected!("avx512f") { 
-        println!("Falling back to scalar implementation (avx512f not found)");
+        println!("[Warning] No AVX-512 CPU found, falling back to scalar implementation");
         use_simd = false; 
     }
     if use_hpc {

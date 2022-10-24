@@ -10,21 +10,14 @@ default-run = "hifimap"
 [dependencies]
 bio = "*"
 fasthash = "0.4.0"
-petgraph = "0.4.13"
-petgraph-graphml = "1.0.2"
-adler32 = "1.0.3"
 pbr = "1.0.1" #progressbar
-arrayvec = "0.4.10"
 #generic-array = "0.13.2" #activate if using kmer_array
 #typenum = "1.11.2"
 structopt = "0.3.1"
 itertools = "0.8.0"
 strsim = "0.9.2"
-array_tool = "*"
-threadpool = "*"
-rayon = "*"
-crossbeam-utils = "*"
 rand_pcg = "0.2.1"
+array_tool = "1.0.3"
 thiserror = "1.0"
 rand_core = "0.5.1"
 closure = "0.3.0"
@@ -51,6 +44,7 @@ fxhash = "0.2.1"
 chrono = "0.4.22"
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
+async_logger = "0.3.3"
 
 [profile.dev]
 opt-level = 3
