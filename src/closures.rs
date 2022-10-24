@@ -6,7 +6,6 @@ use std::error::Error;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use crate::BufReadDecompressor;
-use histo::Histogram;
 use std::fs::{File};
 use std::sync::{Arc};
 use seq_io::BaseRecord;

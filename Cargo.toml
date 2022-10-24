@@ -27,7 +27,6 @@ bio-types = "0.7.0" # for my reimplementation of needleman-wunsch, bio_types is 
 #seq_io= { path = "./seq_io" }
 seq_io= { git = "https://github.com/markschl/seq_io" }
 wfa = { git = "https://github.com/ekimb/wfa" }
-#seq_io = "0.3.1"
 lzzzz = "0.7"
 xx-bloomfilter = "0.10.0"
 flate2 = "1.0.6"
