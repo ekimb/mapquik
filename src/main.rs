@@ -74,7 +74,7 @@ fn get_memory_rusage() -> usize {
   usage.ru_maxrss as usize * 1024
 }
 
-fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
+fn get_reader(path: &PathBuf) -> (Box<dyn BufRead + Send>, bool) {
     let mut filetype = "unzip";
     let filename_str = path.to_str().unwrap();
     let file = match File::open(path) {
@@ -83,10 +83,10 @@ fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
         };
     if filename_str.ends_with(".gz")  {filetype = "zip";}
     if filename_str.ends_with(".lz4") {filetype = "lz4";}
-    let reader :Box<dyn BufRead + Send> = match filetype { 
-        "zip" => Box::new(BufReader::new(GzDecoder::new(file))), 
-        "lz4" => Box::new(BufReadDecompressor::new(BufReader::new(file)).unwrap()),
-        _ =>     Box::new(BufReader::new(file)), 
+    let reader :(Box<dyn BufRead + Send>,bool) = match filetype { 
+        "zip" => (Box::new(BufReader::new(GzDecoder::new(file))),true), 
+        "lz4" => (Box::new(BufReadDecompressor::new(BufReader::new(file)).unwrap()),true),
+        _ =>     (Box::new(BufReader::new(file)),false), 
     }; 
     reader
 }
@@ -220,7 +220,7 @@ fn main() {
     if opt.nohpc  { use_hpc = false; }
     if opt.nosimd { use_simd = false; }
     if ! std::is_x86_feature_detected!("avx512f") { 
-        println!("[Warning] No AVX-512 CPU found, falling back to scalar implementation");
+        println!("Warning: No AVX-512 CPU found, falling back to scalar implementation");
         use_simd = false; 
     }
     if use_hpc {

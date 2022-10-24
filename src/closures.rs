@@ -3,7 +3,7 @@
 
 use std::io::{self};
 use std::error::Error;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Write, BufWriter};
 use std::path::Path;
 use crate::BufReadDecompressor;
 use std::fs::{File};
@@ -24,6 +24,8 @@ use crate::align::{get_slices, align_slices, AlignStats};
 use std::borrow::Cow;
 use chrono::{Utc};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use rust_parallelfastx::parallel_fastx;
+use std::sync::mpsc;
 
 // Main function for all FASTA parsing + mapping / alignment functions.
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
@@ -35,14 +37,13 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     let ref_i = AtomicUsize::new(0);
     let ref_map : DashMap<usize, (String, usize)> = DashMap::new(); // Sequence lengths per reference
 
-
-
     // PAF file generation
-    let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
-    let mut paf_file = match File::create(&path) {
-        Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
-        Ok(paf_file) => paf_file,
+    let paf_filename = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
+    let mut paf_file = match File::create(&paf_filename) {
+        Err(why) => panic!("Couldn't create {}: {}", paf_filename, why.description()),
+        Ok(paf_file) => BufWriter::new(paf_file),
     };
+
 
     // Unmapped read file generation
     let unmap_path = format!("{}{}", output_prefix.to_str().unwrap(), ".unmapped.out");
@@ -88,7 +89,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     // Start processing references
 
     let start = Instant::now();
-    let buf = get_reader(&ref_filename);
+    let (buf,_dontcare) = get_reader(&ref_filename);
     if ref_fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
         read_process_fasta_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fasta_mer, |record, found| {ref_main_thread_mer(found)});
@@ -115,13 +116,15 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
-    
+
     };
     let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, Option<String>)| {
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
     };
+
+    // main thread for writing to PAF
     let mut main_thread_mer = |found: &mut (String, Option<String>)| { // runs in main thread
         let (seq_id, match_opt) = found;
         if let Some(l) = match_opt {
@@ -183,21 +186,40 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     */
 
     let query_start = Instant::now();
-    let buf = get_reader(&filename);
-    if fasta_reads {
-        let reader = seq_io::fasta::Reader::new(buf);
-        read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
-        //mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
-        let query_duration = query_start.elapsed();
-        println!("Mapped query sequences in {:?}.", query_duration);
+    let (buf, are_reads_compressed) = get_reader(&filename);
+    if are_reads_compressed {    // fall-back to seq_io parallel
+        // spawn read processing threads
+        if fasta_reads {
+            let reader = seq_io::fasta::Reader::new(buf);
+            read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
+        }
+        else {
+            let reader = seq_io::fastq::Reader::new(buf);
+            read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
+        }
+    } else { // rust-parallelfastx is a more efficient fastx parser than seq_io when reading from disk is fast and file is uncompressed
+        println!("Warning: using experimental rust-parallelfastx (exciting!)");
+        let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
+        let task = |seq_str: &[u8], seq_id: &str|  {
+            let (_osef, match_opt) = query_process_read_aux_mer(&seq_str, &seq_id);
+            if let Some(l) = match_opt {
+                paf_mpsc_send.send(Some(l));
+            }
+        };
+        let writer = std::thread::spawn(move || {
+            while let Some(paf_line) = paf_mpsc_recv.recv().unwrap() {
+                write!(paf_file, "{}\n", paf_line).expect("Error writing line.");
+            }
+        });
+        parallel_fastx(&filename.to_string_lossy(), threads, task);
+        paf_mpsc_send.send(None); // signal we're done
+        writer.join().unwrap();
     }
-    else {
-        let reader = seq_io::fastq::Reader::new(buf);
-        read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
-        //mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
-        let query_duration = query_start.elapsed();
-        println!("Mapped query sequences in {:?}.", query_duration);
-    }
+
+    let query_duration = query_start.elapsed();
+    println!("Mapped query sequences in {:?}.", query_duration);
+
+
 
     // Done, start alignment (optional)
     /*
