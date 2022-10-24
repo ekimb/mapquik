@@ -22,7 +22,7 @@ use indicatif::ProgressBar;
 use std::time::Instant;
 use dashmap::DashSet;
 use crate::index::{Entry, Index, ReadOnlyIndex};
-use crate::align::{get_slices, align_slices, AlignStats};
+//use crate::align::{get_slices, align_slices, AlignStats};
 use std::borrow::Cow;
 use chrono::{Utc};
 use std::sync::atomic::{AtomicUsize, Ordering};

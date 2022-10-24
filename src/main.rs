@@ -42,7 +42,7 @@ use crate::chain::{Chain};
 use rust_seq2kminmers::{KminmerType, Kminmer, H, FH, KH};
 mod closures;
 mod mers;
-mod align;
+// mod align;
 mod index;
 mod stats;
 mod r#match;
