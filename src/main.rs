@@ -56,6 +56,7 @@ pub struct Params {
     l: usize,
     density: FH,
     use_hpc: bool,
+    use_simd: bool,
     debug: bool,
     a: bool,
     c: usize, // minimum chain length
@@ -163,7 +164,12 @@ struct Opt {
     align: bool,
     #[structopt(long)]
     low_memory: bool,
-
+    /// Deactivate SIMD (AVX2,AVX512) functions (for old processors)
+    #[structopt(long)]
+    nosimd: bool,
+    /// Deactivate HomoPolymer Compression
+    #[structopt(long)]
+    nohpc: bool,
 }
 
 fn main() {
@@ -181,12 +187,8 @@ fn main() {
     let a = opt.align;
     let mut density : FH = 0.01;
     let reference : bool = false;
-    let mut use_hpc : bool = true; // hardcoded to true
-    if use_hpc {
-        println!("Using HPC ntHash");
-    } else {
-        println!("Using regular ntHash (not HPC)");
-    }
+    let mut use_hpc : bool = true; 
+    let mut use_simd : bool = true; 
     let mut threads : usize = 8;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
@@ -216,11 +218,30 @@ fn main() {
     output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let debug = opt.debug;
+    if opt.nohpc  { use_hpc = false; }
+    if opt.nosimd { use_simd = false; }
+    if use_hpc {
+        if use_simd {
+            println!("Using HPC ntHash, with SIMD");
+        }
+            else {
+            println!("Using HPC ntHash, scalar");
+        }
+    } else {
+        if use_simd {
+            println!("Using regular ntHash (not HPC), with SIMD");
+        }
+            else {
+            println!("Using regular ntHash (not HPC), scalar");
+        }
+    }
+
     let params = Params { 
         k,
         l,
         density,
         use_hpc,
+        use_simd,
         debug,
         a,
         c,
