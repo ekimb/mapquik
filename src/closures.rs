@@ -187,7 +187,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let query_start = Instant::now();
     let (buf, are_reads_compressed) = get_reader(&filename);
-    if are_reads_compressed {    // fall-back to seq_io parallel
+    if are_reads_compressed || (!params.use_pfx) {  // fall-back to seq_io parallel
         // spawn read processing threads
         if fasta_reads {
             let reader = seq_io::fasta::Reader::new(buf);
@@ -198,6 +198,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
             read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
         }
     } else { // rust-parallelfastx is a more efficient fastx parser than seq_io when reading from disk is fast and file is uncompressed
+        // the only downside is that it will display a large RSS footprint as the reads will be
+        // loaded in memory (though, that memory isn't needed by hifimap, it will just use as much as possible)
         println!("Warning: using experimental rust-parallelfastx (exciting!)");
         let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
         let task = |seq_str: &[u8], seq_id: &str|  {

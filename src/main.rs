@@ -56,6 +56,7 @@ pub struct Params {
     density: FH,
     use_hpc: bool,
     use_simd: bool,
+    use_pfx: bool,
     debug: bool,
     a: bool,
     c: usize, // minimum chain length
@@ -169,6 +170,10 @@ struct Opt {
     /// Deactivate HomoPolymer Compression
     #[structopt(long)]
     nohpc: bool,
+    /// Use parallelfastx (faster uncompressed reads parsing)
+    #[structopt(long)]
+    parallelfastx: bool,
+
 }
 
 fn main() {
@@ -188,6 +193,7 @@ fn main() {
     let reference : bool = false;
     let mut use_hpc : bool = true; 
     let mut use_simd : bool = true; 
+    let mut use_pfx : bool = false; 
     let mut threads : usize = 8;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
@@ -219,6 +225,7 @@ fn main() {
     let debug = opt.debug;
     if opt.nohpc  { use_hpc = false; }
     if opt.nosimd { use_simd = false; }
+    if opt.parallelfastx { use_pfx = true; }
     if ! std::is_x86_feature_detected!("avx512f") { 
         println!("Warning: No AVX-512 CPU found, falling back to scalar implementation");
         use_simd = false; 
@@ -245,6 +252,7 @@ fn main() {
         density,
         use_hpc,
         use_simd,
+        use_pfx,
         debug,
         a,
         c,
