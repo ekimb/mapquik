@@ -271,14 +271,8 @@ fn main() {
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
     Stats::init(threads, output_prefix.to_str().unwrap());
-
-    //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
     closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);
-    println!("current time after exiting closures {:?}",Utc::now());
-    //if params.a {
-       // println!("Running WFA...");
-       // wfa::run_wfa(&filename, &ref_filename, &matches, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
-   // }
+    //println!("current time after exiting closures {:?}",Utc::now());
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
     println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);

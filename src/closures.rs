@@ -264,5 +264,5 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         }
     }
     */
-    println!("current time before exiting closures {:?}",Utc::now());
+    //println!("current time before exiting closures {:?}",Utc::now());
 }
