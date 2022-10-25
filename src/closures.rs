@@ -70,14 +70,14 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
 
     let ref_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq().to_vec(); 
-        let ref_id = record.id().unwrap().to_string();
+        let ref_str = record.seq(); 
+        let ref_id = record.id().unwrap();
         *found = ref_process_read_aux_mer(&ref_str, &ref_id);
 
     };
     let ref_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
         let ref_str = record.seq(); 
-        let ref_id = record.id().unwrap().to_string();
+        let ref_id = record.id().unwrap();
         *found = ref_process_read_aux_mer(&ref_str, &ref_id);
     };
     let ref_main_thread_mer = |found: &mut Option<u64>| { // runs in main thread
@@ -114,13 +114,13 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
         let seq_str = record.seq(); 
-        let seq_id = record.id().unwrap().to_string();
+        let seq_id = record.id().unwrap();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
 
     };
     let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, Option<String>)| {
         let seq_str = record.seq(); 
-        let seq_id = record.id().unwrap().to_string();
+        let seq_id = record.id().unwrap();
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
     };
 
