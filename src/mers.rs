@@ -80,7 +80,7 @@ pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>
 
 
 // Extract raw Vecs of Matches, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
-pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params) /* aln_coords: &DashMap<String, Vec<AlignCand>>) */-> Option<String> {
+pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
     let mut kminmers = extract(q_id, q_str, params);
     let matches_per_ref = chain_matches(q_id, &mut kminmers, mers_index, params, q_len);
     let mut all_pseudocoords = Vec::<(PseudoChainCoordsTuple, usize)>::new();    
@@ -92,20 +92,23 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
         if let Some(t) = tp {all_pseudocoords.push(((*r_id, t), len_score));}
     }
     let coords_count = all_pseudocoords.len();
-    return match coords_count {
+    let paf_line = match coords_count {
         0 => None,
         1 => Some(find_coords(q_id, q_len, ref_map,  &all_pseudocoords[0].0, all_pseudocoords[0].1)),
         _ => determine_best_match(q_id, q_len, ref_map, &all_pseudocoords, coords_count),
     };
-       /* let (v, c) = &final_matches[0];
-        if params.a {
-            let (q_coords, r_coords) = c.get_remaining_seqs(&v);
-            for i in 0..q_coords.len() {
-                let q_coord_tup = q_coords[i];
-                let r_coord_tup = r_coords[i];
-                aln_coords.get_mut(&v.1).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0, q_coord_tup.1), v.9));
-            }
+    if params.a {
+        // TODO that code needs to be updated.. seems we don't remember the full chain anymore, and
+        // get_remaining_edges needs a very particular format
+        //let (v, c) = m;
+        /*let (q_coords, r_coords) = c.get_remaining_seqs(&v);
+        for i in 0..q_coords.len() {
+            let q_coord_tup = q_coords[i];
+            let r_coord_tup = r_coords[i];
+            aln_coords.get_mut(&v.1).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0, q_coord_tup.1), v.9));
         }*/
+    }
+    paf_line
 }
 
 pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &Vec<(PseudoChainCoordsTuple, usize)>, coords_count: usize) -> Option<String> {

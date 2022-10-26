@@ -7,7 +7,6 @@ use std::io::{BufRead, BufReader, Write, BufWriter};
 use std::path::Path;
 use crate::BufReadDecompressor;
 use std::fs::{File};
-use std::sync::{Arc};
 use seq_io::BaseRecord;
 use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records};
 use dashmap::DashMap;
@@ -31,9 +30,9 @@ use std::sync::mpsc;
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
 
     let mers_index = Index::new(); // Index of reference k-min-mer entries
-    //let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
-    //let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
-    //let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
+    let mut aln_coords :   DashMap<String, Vec<AlignCand>>      =  DashMap::new(); // Index of AlignCand objects (see mers.rs for a definition) per reference
+    let mut aln_coords_q : DashMap<String, Vec<Offset>>         =  DashMap::new(); // Index of intervals that need to be aligned per query
+    let mut aln_seqs_cow : DashMap<(String, Offset), Cow<[u8]>> =  DashMap::new(); // Index of pointers to string slices that need to be aligned per reference
     let ref_i = AtomicUsize::new(0);
     let ref_map : DashMap<usize, (String, usize)> = DashMap::new(); // Sequence lengths per reference
 
@@ -64,7 +63,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         let nb_mers = index_mers(ref_id, ref_str, params);
-        //if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
+        if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
         println!("Indexed reference {}: {} k-min-mers.", ref_id, nb_mers);
         return Some(1)
     };
@@ -108,8 +107,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     // Closures for mapping queries to references
 
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
-        //if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
-        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &ref_map, &mers_index, params); //&aln_coords);
+        if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
+        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &ref_map, &mers_index, params, &aln_coords);
         return (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
@@ -136,7 +135,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     //
 
     // Closures for base-level alignment (obtaining reference sequence slices)
-    /*
+    
     let ref_process_read_aux_aln = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         get_slices(ref_id, ref_str, &aln_coords, &aln_coords_q, &aln_seqs_cow);
         return Some(1)
@@ -168,7 +167,6 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         let seq_str = record.seq(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_aln(&seq_str, &seq_id);
-        //if params.a {eprintln!("{}", seq_id);}
     
     };
     let query_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<AlignStats>| {
@@ -183,7 +181,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         None::<()>
     };
 
-    */
+    //
 
     let query_start = Instant::now();
     let (buf, are_reads_compressed) = get_reader(&filename);
@@ -224,10 +222,10 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
 
     // Done, start alignment (optional)
-    /*
+    
     if params.a {
         let start = Instant::now();
-        let buf_aln = get_reader(&ref_filename);
+        let (buf_aln, _dontcare) = get_reader(&ref_filename);
 
         // Obtain reference sequences
 
@@ -245,7 +243,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         // Done, obtain query sequences and align
 
         let query_start = Instant::now();
-        let buf_aln = get_reader(&filename);
+        let (buf_aln, _dontcare) = get_reader(&filename);
         if fasta_reads {
             let reader = seq_io::fasta::Reader::new(buf_aln);
             read_process_fasta_records(reader, threads as u32, threads, query_process_read_fasta_aln, |record, found| {main_thread_aln(found)});
@@ -263,6 +261,6 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
             println!("[warning] Alignment stats: {} successful, {} failed", global_align_stats.successful, global_align_stats.failed);
         }
     }
-    */
+    
     //println!("current time before exiting closures {:?}",Utc::now());
 }

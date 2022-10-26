@@ -20,7 +20,6 @@ static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 extern crate array_tool;
 use std::fs;
 use structopt::StructOpt;
-use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
 use std::time::{Instant};
 use std::mem::{MaybeUninit};

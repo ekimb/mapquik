@@ -79,6 +79,7 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
         let mut r = aln_seqs_cow.get(&(seq_id.to_string(), *q_tup)).unwrap();
         //println!("{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len());
         let q = &seq_str[q_tup.0..q_tup.1];
+        println!("Will align:\n{:?}\n{:?}", q,r);
         let (score, cigar) = if mode == 1 {
                 //libwfa(q, &r, wfa1_alloc.as_ref().unwrap(), &mut penalties, &mut align_stats)
                 libwfa(q, &r, &wfa1_alloc, &mut penalties, &mut align_stats)

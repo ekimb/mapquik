@@ -3,7 +3,6 @@
 
 use crate::{KH};
 use dashmap::{DashMap, ReadOnlyView};
-use std::sync::Arc;
 use std::hash::BuildHasherDefault;
 use fxhash::FxHasher64;
 use core::hash::Hasher;
@@ -78,14 +77,12 @@ impl Entry {
 
 // An Index object is a mapping of k-min-mer hashes (see kminmer.rs) to a single Entry (multiple Entries are not allowed).
 pub struct Index {
-    //pub index: Arc<DashMap<H, Entry, BuildHasherDefault<FxHasher64>>>
     pub index: DashMap<KH, Entry, BuildHasherDefault<KnownHasher>>,
 }
 impl Index {
 
     // Create a new Index.
     pub fn new() -> Self {
-        //let hasher = BuildHasherDefault::<FxHasher64>::default();
         let hasher = BuildHasherDefault::<KnownHasher>::default();
         let map = DashMap::with_capacity_and_hasher(39821990/* number of kminmers in CHM13V2 with default params*/,
                                                                                          hasher);
