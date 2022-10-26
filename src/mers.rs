@@ -99,7 +99,7 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
     };
     if params.a {
         // TODO that code needs to be updated.. seems we don't remember the full chain anymore, and
-        // get_remaining_edges needs a very particular format
+        // get_remaining_seqs needs a very particular format
         //let (v, c) = m;
         /*let (q_coords, r_coords) = c.get_remaining_seqs(&v);
         for i in 0..q_coords.len() {
