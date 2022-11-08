@@ -4,7 +4,7 @@
 ref=ecoli.genome.100k.fa
 reads=nearperfect-ecoli.10X.100k
 
-ref=ecoli.genome.renamed.fa
+ref=ecoli.genome.fa
 reads=nearperfect-ecoli.10X
 
 pbsim \
