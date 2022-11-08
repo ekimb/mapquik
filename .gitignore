@@ -1,7 +1,6 @@
 /target
 **/*.rs.bk
 *.fa
-*.fa.fai
 *.fasta
 *.fastq
 src/trash.rs
@@ -20,7 +19,6 @@ Cargo.lock
 src/graph.py
 compute_err.py
 .DS_Store
-example/model_qc_clr
 .gitignore
 example/nearperfect-ecoli*
 *.log
