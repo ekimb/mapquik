@@ -1,8 +1,8 @@
 
-`hifimap`: fast HiFi read mapper using k-min-mers
+`mapquik`: fast HiFi read mapper using k-min-mers
 =========
 
-`hifimap` is an ultra-fast read mapper based on the minimizer-space de Bruijn graph (mdBG). It aligns long and accurate reads such as [PacBio HiFi](https://www.pacb.com/smrt-science/smrt-sequencing/hifi-reads-for-highly-accurate-long-read-sequencing/) to a reference genome.
+`mapquik` is an ultra-fast read mapper based on the minimizer-space de Bruijn graph (mdBG). It aligns long and accurate reads such as [PacBio HiFi](https://www.pacb.com/smrt-science/smrt-sequencing/hifi-reads-for-highly-accurate-long-read-sequencing/) to a reference genome.
 
 ## Rationale
 
@@ -25,12 +25,12 @@ The nightly version of cargo is required because hifiasm uses experimental langu
 ## Quick start
 
 ```
-target/release/hifimap <reads.fq> --reference <reference.fa>
+target/release/mapquik <reads.fq> --reference <reference.fa>
 ```
 
 ## Input
 
-`hifimap` takes a single FASTA/FASTQ input (gzip-compressed or not) as input. Multi-line sequences, and sequences with lowercase characters, are not supported. 
+`mapquik` takes a single FASTA/FASTQ input (gzip-compressed or not) as input. Multi-line sequences, and sequences with lowercase characters, are not supported. 
 
 If you have [seqtk](https://github.com/lh3/seqtk) installed, you can use
 
@@ -40,26 +40,26 @@ to format reads accordingly.
 
 ## Output
 
-The output of `hifimap` is a regular PAF file.
+The output of `mapquik` is a regular PAF file.
 
 ## Running an example
 
-A sample set of reads and a reference are provided in the `example/` folder. To run `hifimap` on it, type:
+A sample set of reads and a reference are provided in the `example/` folder. To run `mapquik` on it, type:
 
 ```
 cd example
-../target/release/hifimap pbsim-ecoli.10X.100k.fa --reference  ecoli.genome.100k.fa -k 5 -d 0.05 -l 12 -f 0 
+../target/release/mapquik pbsim-ecoli.10X.100k.fa --reference  ecoli.genome.100k.fa -k 5 -d 0.05 -l 12 -f 0 
 ```
 
 ## Parameters
 
 For further information on usage and parameters, run
 
-`target/release/hifimap -h`
+`target/release/mapquik -h`
 
 for a one-line summary of each flag, or run
 
-`target/release/hifimap --help`
+`target/release/mapquik --help`
 
 for a lengthy explanation of each flag.
 
@@ -67,7 +67,7 @@ for a lengthy explanation of each flag.
 
 ## License
 
-`hifimap` is freely available under the [MIT License](https://opensource.org/licenses/MIT).
+`mapquik` is freely available under the [MIT License](https://opensource.org/licenses/MIT).
 
 ## Developers
 
@@ -78,7 +78,7 @@ for a lengthy explanation of each flag.
 
 ## Citation
 
-Hifimap is not yet published. For now, please cite our original mdBG article: [Minimizer-space de Bruijn graphs](https://www.biorxiv.org/content/10.1101/2021.06.09.447586v1) (2021) BiorXiv
+`mapquik` is not yet published. For now, please cite our original mdBG article: [Minimizer-space de Bruijn graphs](https://www.biorxiv.org/content/10.1101/2021.06.09.447586v1) (2021) BiorXiv
 
 ```
 @article {mdbg,

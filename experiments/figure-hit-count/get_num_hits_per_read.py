@@ -2,7 +2,7 @@
 
 # example usage:
 # first use get_q0_hitstats.sh [k] for all k,
-# make sure hifimap-default-[k].paf and hifimap-default-[k]-Q0-incorrect.stats are in directory,
+# make sure mapquik-default-[k].paf and mapquik-default-[k]-Q0-incorrect.stats are in directory,
 # python get_num_hits_per_read.py 5 6 7 8
 
 import sys
@@ -91,8 +91,8 @@ def plotter_up_to_100(hit_all, first_non100):
 
 def obtain_stats_for_k(k):
     dict_incorr = {}
-    incorr = "hifimap-default-" + k + "-Q0-incorrect.stats"
-    allmaps = "hifimap-default-" + k + ".paf"
+    incorr = "mapquik-default-" + k + "-Q0-incorrect.stats"
+    allmaps = "mapquik-default-" + k + ".paf"
     read_incorrect_reads(incorr, dict_incorr)
     hit_all = read_all(allmaps, dict_incorr)
     x_ax_r, y_ax_r = plotter_reads(hit_all)

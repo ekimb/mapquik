@@ -1,4 +1,4 @@
-// hifimap v0.1.0
+// mapquik v0.1.0
 // Copyright 2020-2021 Baris Ekim, Rayan Chikhi.
 // Licensed under the MIT license (http://opensource.org/licenses/MIT).
 // This file may not be copied, modified, or distributed except according to those terms.
@@ -71,8 +71,8 @@ fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
 }
 
 #[derive(Debug, StructOpt)]
-#[structopt(name = "hifimap")]
-/// Original implementation of hifimap, a fast HiFi read mapper.
+#[structopt(name = "mapquik")]
+/// Original implementation of mapquik, a fast HiFi read mapper.
 struct Opt {
     /// Activate debug mode
     ///
@@ -192,7 +192,7 @@ fn main() {
     if opt.chain.is_some() {c = opt.chain.unwrap()} else {println!("Warning: Using default minimum chain length ({}).", c);}
     if opt.seed.is_some() {s = opt.seed.unwrap()} else {println!("Warning: Using default minimum number of matching seeds ({}).", s);}
     if opt.gap_diff.is_some() {g = opt.gap_diff.unwrap()} else {println!("Warning: Using default maximum seed gap difference ({}).", g);}
-    output_prefix = PathBuf::from(format!("hifimap-k{}-d{}-l{}", k, density, l));
+    output_prefix = PathBuf::from(format!("mapquik-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let _debug = opt.debug;
     let params = Params { 

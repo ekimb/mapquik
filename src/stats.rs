@@ -29,7 +29,7 @@ impl Stats {
         {
             if nb_threads != 1
             {
-                //panic!("If stats are enabled, hifimap can only be run in 1 thread");
+                //panic!("If stats are enabled, mapquik can only be run in 1 thread");
                 //seems code works with multithreads..
             }
 

@@ -1,15 +1,15 @@
 
 # pasteur specific paths
 export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/BLEND/bin/
-export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/hifimap/target/release/
+export PATH=$PATH:/pasteur/appa/homes/rchikhi/tools/mapquik/target/release/
 
 
 # ---------------- simulated 10X
 
 
 # deprecated, we don't use hard masking anymore as regular reference works even better now thanks to Baris' heuristic of keeping unique kminmers only
-#LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p hifimap-5-31-0.007-1-hardmasked --threads 10
-LD_LIBRARY_PATH=. \time hifimap simulated-chm13v2.0-10X.fa  --reference chm13v2.0.oneline.fa -p hifimap-7-31-0.01-1 --threads 10
+#LD_LIBRARY_PATH=. \time mapquik simulated-chm13v2.0-10X.fa  --reference ../human-genome/chm13v2.0.hardmasked.oneline.fa -k 5 -l 31 -d 0.007 -f 1 -p mapquik-5-31-0.007-1-hardmasked --threads 10
+LD_LIBRARY_PATH=. \time mapquik simulated-chm13v2.0-10X.fa  --reference chm13v2.0.oneline.fa -p mapquik-7-31-0.01-1 --threads 10
 
 
 
@@ -47,7 +47,7 @@ winnowmap -t 10 -W repetitive_k15.txt -x map-pb chm13v2.0.fa simulated-chm13v2.0
 
 
 
-LD_LIBRARY_PATH=. \time hifimap HG002_24kb_2SMRT_cells.dc.v0.3.q20.fastq  --reference chm13v2.0.oneline.fa -k 7 -l 31 -d 0.01 -p hifimap-7-31-0.01-1 --threads 10
+LD_LIBRARY_PATH=. \time mapquik HG002_24kb_2SMRT_cells.dc.v0.3.q20.fastq  --reference chm13v2.0.oneline.fa -k 7 -l 31 -d 0.01 -p mapquik-7-31-0.01-1 --threads 10
 
 #Total execution time: 229.499133928s
 #Maximum RSS: 12.61264GB
@@ -118,13 +118,13 @@ grep --no-group-separator -A1 -wFf simulated-chm13v2.0-10X.censat.txt simulated-
 
 
 #gathering reads not mapped at Q60
-awk '$12 == 60' hifimap.paf|awk '{print $1}'> hifimap.mappedQ60.txt
-wc -l hifimap.mappedQ60.txt
--> 1448212 hifimap.mappedQ60.txt
-grep -vFwf hifimap.mappedQ60.txt simulated-chm13v2.0-10X.txt > hifimap.unmappedQ60.txt
+awk '$12 == 60' mapquik.paf|awk '{print $1}'> mapquik.mappedQ60.txt
+wc -l mapquik.mappedQ60.txt
+-> 1448212 mapquik.mappedQ60.txt
+grep -vFwf mapquik.mappedQ60.txt simulated-chm13v2.0-10X.txt > mapquik.unmappedQ60.txt
 
-grep -Fwf hifimap.unmappedQ60.txt  simulated-chm13v2.0-10X.nocensat.fa|wc -l
+grep -Fwf mapquik.unmappedQ60.txt  simulated-chm13v2.0-10X.nocensat.fa|wc -l
 -> 2803
-$ wc -l hifimap.unmappedQ60.txt
--> 42198 hifimap.unmappedQ60.txt
+$ wc -l mapquik.unmappedQ60.txt
+-> 42198 mapquik.unmappedQ60.txt
 
