@@ -6,15 +6,13 @@ reads=nearperfect-chm13.10X.24kb
 
 pbsim \
        $ref \
-       --model_qc  ~/model_qc_clr \
+       --model_qc  example/model_qc_clr \
        --accuracy-mean 0.99\
        --accuracy-sd 0\
        --depth 10\
        --prefix $reads\
        --length-mean 24000 #hifi
 
-#paftools.js pbsim2fq <ref.fa.fai> <pbsim1.maf> [[pbsim2.maf] ...]
-paftools.js pbsim2fq $ref.fai "$reads"_00*.maf > $reads.fa
-
-rm -rf  "$reads"_00*
-
+samtools faidx $ref
+paftools.js pbsim2fq $ref.fai "$reads"_*.maf > $reads.fa
+rm -f "$reads"_*.maf "$reads"_*.ref "$reads"_*.fastq
