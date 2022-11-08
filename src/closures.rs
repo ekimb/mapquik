@@ -1,30 +1,18 @@
 // closures.rs
 // Functions for FASTA parsing and invoking all necessary functions for mapping and alignment.
 
-use std::io::{self};
-use std::error::Error;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use crate::BufReadDecompressor;
-use histo::Histogram;
-use std::fs::{File};
-use std::sync::{Arc};
+use std::io::Write;
+use std::fs::File;
 use seq_io::BaseRecord;
 use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records};
 use dashmap::DashMap;
-use thread_id;
 use super::mers;
-use crate::mers::{AlignCand, Offset};
 use std::path::PathBuf;
 use super::Params;
 use crate::get_reader;
-use indicatif::ProgressBar;
 use std::time::Instant;
-use dashmap::DashSet;
-use crate::index::{Entry, Index, ReadOnlyIndex};
+use crate::index::{Index, ReadOnlyIndex};
 //use crate::align::{get_slices, align_slices, AlignStats};
-use std::borrow::Cow;
-use chrono::{Utc};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // Main function for all FASTA parsing + mapping / alignment functions.
@@ -42,16 +30,16 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     // PAF file generation
     let path = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
     let mut paf_file = match File::create(&path) {
-        Err(why) => panic!("Couldn't create {}: {}", path, why.description()),
+        Err(why) => panic!("Couldn't create {}: {}", path, why.to_string()),
         Ok(paf_file) => paf_file,
     };
 
     // Unmapped read file generation
-    let unmap_path = format!("{}{}", output_prefix.to_str().unwrap(), ".unmapped.out");
-    let mut unmap_file = match File::create(&unmap_path) {
-        Err(why) => panic!("Couldn't create {}: {}", unmap_path, why.description()),
+    /*let unmap_path = format!("{}{}", output_prefix.to_str().unwrap(), ".unmapped.out");
+    let unmap_file = match File::create(&unmap_path) {
+        Err(why) => panic!("Couldn't create {}: {}", unmap_path, why.to_string()),
         Ok(unmap_file) => unmap_file,
-    };
+    };*/
 
     // Closure for indexing reference k-min-mers
     let index_mers = |seq_id: &str, seq: &[u8], params: &Params| -> usize {
@@ -81,7 +69,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         let ref_id = record.id().unwrap().to_string();
         *found = ref_process_read_aux_mer(&ref_str, &ref_id);
     };
-    let ref_main_thread_mer = |found: &mut Option<u64>| { // runs in main thread
+    let ref_main_thread_mer = |_found: &mut Option<u64>| { // runs in main thread
         None::<()>
     };
 
@@ -93,11 +81,11 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     let buf = get_reader(&ref_filename);
     if ref_fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
-        read_process_fasta_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fasta_mer, |record, found| {ref_main_thread_mer(found)});
+        read_process_fasta_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fasta_mer, |_record, found| {ref_main_thread_mer(found)}).ok();
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
-        read_process_fastq_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fastq_mer, |record, found| {ref_main_thread_mer(found)});
+        read_process_fastq_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fastq_mer, |_record, found| {ref_main_thread_mer(found)}).ok();
     }
     let duration = start.elapsed();
     println!("Indexed {} unique k-min-mers in {:?}.", mers_index.get_count(), duration);
@@ -125,7 +113,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         *found = query_process_read_aux_mer(&seq_str, &seq_id);
     };
     let mut main_thread_mer = |found: &mut (String, Option<String>)| { // runs in main thread
-        let (seq_id, match_opt) = found;
+        let (_, match_opt) = found;
         if let Some(l) = match_opt {
             write!(paf_file, "{}\n", l).expect("Error writing line.");
         }
@@ -188,14 +176,14 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     let buf = get_reader(&filename);
     if fasta_reads {
         let reader = seq_io::fasta::Reader::new(buf);
-        read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
+        read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |_record, found| {main_thread_mer(found)}).ok();
         //mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
         let query_duration = query_start.elapsed();
         println!("Mapped query sequences in {:?}.", query_duration);
     }
     else {
         let reader = seq_io::fastq::Reader::new(buf);
-        read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
+        read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |_record, found| {main_thread_mer(found)}).ok();
         //mers::output_paf(&all_matches, &mut paf_file, &mut unmap_file, params);
         let query_duration = query_start.elapsed();
         println!("Mapped query sequences in {:?}.", query_duration);
@@ -242,5 +230,5 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         }
     }
     */
-    println!("current time before exiting closures {:?}",Utc::now());
+    //println!("current time before exiting closures {:?}",Utc::now());
 }

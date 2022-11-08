@@ -3,9 +3,7 @@
 
 use crate::{KH};
 use dashmap::{DashMap, ReadOnlyView};
-use std::sync::Arc;
 use std::hash::BuildHasherDefault;
-use fxhash::FxHasher64;
 use core::hash::Hasher;
 
 // from https://github.com/Manishearth/trashmap/blob/master/src/lib.rs
@@ -55,16 +53,6 @@ impl Entry {
         Entry {id, start, end, offset, rc}
     }
 
-    // Create a new Entry given a tuple.
-    pub fn from_tuple(t: (usize, usize, usize, usize, bool)) -> Self {
-        Entry {id: t.0, start: t.1, end: t.2, offset: t.3, rc: t.4}
-    }
-
-    // Output a Raw tuple.
-    pub fn expand(&self) -> (usize, usize, usize, usize, bool) {
-        (self.id, self.start, self.end, self.offset, self.rc)
-    }
-
     // An empty Entry.
     pub fn empty() -> Self {
         Entry {id: 0, start: 0, end: 0, offset: 0, rc: false}
@@ -92,18 +80,6 @@ impl Index {
         Index {
             index: map,
         }
-    }
-
-
-    // Return the Entry associated with the k-min-mer hash h, or None if none.
-    pub fn get(&self, h: &KH) -> Option<Entry> {
-        let e = self.index.get(h);
-        if let Some(r) = e {
-            if !r.is_empty() {
-                return Some(r.clone());
-            }
-        }
-        None
     }
 
     pub fn get_count(&self) -> usize {
