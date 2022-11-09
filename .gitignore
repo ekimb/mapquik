@@ -33,4 +33,10 @@ example-map/
 *.merylIndex
 *.merylData
 *.read_stats
+*.reads_stats
 heaptrack*
+*.hist
+*.histo
+*.hist2D
+*.histo2D
+*.pdf
