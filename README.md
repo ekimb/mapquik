@@ -10,17 +10,16 @@
 
 ## Installation
 
-Pre-requisites: a working Rust environment (https://rustup.rs/), `llvm`, and `clang` (for `libwfa`).
+Pre-requisites: a working Rust environment (https://rustup.rs/).
 
 Clone the repository, and run 
 
 ```
 rustup install nightly
-export CARGO_NET_GIT_FETCH_WITH_CLI=true
 cargo +nightly build --release
 ```
 
-The nightly version of `cargo` is required because `mapquik` uses experimental language features (such as SIMD and intrinsics). The `export` command is needed because `libwfa` has WFA2 as a `git` submodule with a SSH url. It fixes the error "`failed to authenticate when downloading repository`".
+The nightly version of `cargo` is required because `mapquik` uses experimental language features (such as SIMD and intrinsics).
 
 ## Quick start
 
@@ -40,7 +39,7 @@ An example reference genome, and a script to simulate reads using `pbsim` are pr
 
 `cd example && bash run_ecoli.sh`
 
-which will run both `mapquik` and `minimap2` on the simulate reads, and return the output of `paftools.js mapeval` on both PAF files.
+which will run both `mapquik` and `minimap2` on 100 simulated reads, and return the output of `paftools.js mapeval` on both PAF files.
 
 To simulate a larger set of reads using pbsim and map, type:
 
