@@ -36,11 +36,16 @@ The output of `mapquik` is a regular PAF file.
 
 ## Running an example
 
-An example reference genome, and a script to simulate reads using `pbsim` are provided in the `example/` folder. To run `mapquik` on it, simulate and map reads using
+An example reference genome, and a script to simulate reads using `pbsim` are provided in the `example/` folder. To run `mapquik` on a small set of 100 reads, type:
+
+`cd example && bash run_ecoli.sh`
+
+which will run both `mapquik` and `minimap2` on the simulate reads, and return the output of `paftools.js mapeval` on both PAF files.
+
+To simulate a larger set of reads using pbsim and map, type:
 
 `bash simulate_pbsim.sh && bash run_ecoli_full.sh`
 
-which will run both `mapquik` and `minimap2` on the simulate reads, and return the output of `paftools.js mapeval` on both PAF files.
 
 ## Parameters
 
