@@ -30,12 +30,6 @@ The nightly version of `cargo` is required because `mapquik` uses experimental l
 
 `mapquik` takes a single FASTA/FASTQ input (`gzip`-compressed or not) as input. Multi-line sequences, and sequences with lowercase characters, are not supported. 
 
-If you have [`seqtk`](https://github.com/lh3/seqtk) installed, you can use
-
-`seqtk seq -AU reads.unformatted.fq > reads.fa`
-
-to format reads accordingly.
-
 ## Output
 
 The output of `mapquik` is a regular PAF file.
