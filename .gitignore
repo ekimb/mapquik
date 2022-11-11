@@ -15,6 +15,11 @@ runs
 *.paf
 *.maf
 *.ref
+*.hist
+*.histo
+*.hist2D
+*.histo2D
+*.pdf
 Cargo.lock
 src/graph.py
 compute_err.py
@@ -34,9 +39,4 @@ example-map/
 *.merylData
 *.read_stats
 *.reads_stats
-heaptrack*
-*.hist
-*.histo
-*.hist2D
-*.histo2D
-*.pdf
+heaptrack
