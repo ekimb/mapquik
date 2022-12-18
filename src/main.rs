@@ -3,9 +3,15 @@
 // Licensed under the MIT license (http://opensource.org/licenses/MIT).
 // This file may not be copied, modified, or distributed except according to those terms.
 
-//#![allow(unused_variables)]
-//#![allow(non_upper_case_globals)]
-//#![allow(warnings)]
+#![allow(unused_variables)]
+#![allow(non_upper_case_globals)]
+#![allow(warnings)]
+#![feature(iter_advance_by)]
+use std::io::stderr;
+use std::error::Error;
+use std::io::Write;
+use std::collections::HashMap;
+use std::collections::HashSet;
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -31,12 +37,14 @@ mod stats;
 pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
 pub type PseudoChainCoordsTuple<'a> = (usize, PseudoChainCoords);
 pub struct Params {
-    k: usize, // k-min-mer length
-    l: usize, // minimizer length
-    density: FH, // minimizer density
-    use_hpc: bool, // use homopolymer compression
-    //debug: bool, // enable debugging
-    //a: bool, // enable alignment (WIP)
+    k: usize,
+    l: usize,
+    density: FH,
+    use_hpc: bool,
+    use_simd: bool,
+    use_pfx: bool,
+    debug: bool,
+    a: bool,
     c: usize, // minimum chain length
     s: usize, // minimum match score (# of matching seeds)
     g: usize, // maximum gap difference
@@ -53,7 +61,7 @@ fn get_memory_rusage() -> usize {
     usage.ru_maxrss as usize * 1024
 }
 
-fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
+fn get_reader(path: &PathBuf) -> (Box<dyn BufRead + Send>, bool) {
     let mut filetype = "unzip";
     let filename_str = path.to_str().unwrap();
     let file = match File::open(path) {
@@ -62,10 +70,10 @@ fn get_reader(path: &PathBuf) -> Box<dyn BufRead + Send> {
         };
     if filename_str.ends_with(".gz")  {filetype = "zip";}
     if filename_str.ends_with(".lz4") {filetype = "lz4";}
-    let reader :Box<dyn BufRead + Send> = match filetype { 
-        "zip" => Box::new(BufReader::new(GzDecoder::new(file))), 
-        "lz4" => Box::new(BufReadDecompressor::new(BufReader::new(file)).unwrap()),
-        _ =>     Box::new(BufReader::new(file)), 
+    let reader :(Box<dyn BufRead + Send>,bool) = match filetype { 
+        "zip" => (Box::new(BufReader::new(GzDecoder::new(file))),true), 
+        "lz4" => (Box::new(BufReadDecompressor::new(BufReader::new(file)).unwrap()),true),
+        _ =>     (Box::new(BufReader::new(file)),false), 
     }; 
     reader
 }
@@ -143,6 +151,15 @@ struct Opt {
     /// 
     #[structopt(long)]
     low_memory: bool,
+    /// Deactivate SIMD (AVX2,AVX512) functions (for old processors)
+    #[structopt(long)]
+    nosimd: bool,
+    /// Deactivate HomoPolymer Compression
+    #[structopt(long)]
+    nohpc: bool,
+    /// Use parallelfastx (faster uncompressed reads parsing)
+    #[structopt(long)]
+    parallelfastx: bool,
 
 }
 
@@ -158,14 +175,12 @@ fn main() {
     let mut s = 11;
     let mut g = 2000;
     let low_memory = opt.low_memory;
-    //let a = opt.align;
+    let a = false;
     let mut density : FH = 0.01;
-    let use_hpc : bool = true; // hardcoded to true
-    if use_hpc {
-        println!("Using HPC ntHash.");
-    } else {
-        println!("Using regular ntHash (not HPC).");
-    }
+    let reference : bool = false;
+    let mut use_hpc : bool = true; 
+    let mut use_simd : bool = true; 
+    let mut use_pfx : bool = false; 
     let mut threads : usize = 8;
     if opt.reads.is_some() {filename = opt.reads.unwrap();} 
     if opt.reference.is_some() {ref_filename = opt.reference.unwrap();} 
@@ -194,14 +209,38 @@ fn main() {
     if opt.gap_diff.is_some() {g = opt.gap_diff.unwrap()} else {println!("Warning: Using default maximum seed gap difference ({}).", g);}
     output_prefix = PathBuf::from(format!("mapquik-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
-    let _debug = opt.debug;
+    let debug = opt.debug;
+    if opt.nohpc  { use_hpc = false; }
+    if opt.nosimd { use_simd = false; }
+    if opt.parallelfastx { use_pfx = true; }
+    if ! std::is_x86_feature_detected!("avx512f") { 
+        println!("Warning: No AVX-512 CPU found, falling back to scalar implementation");
+        use_simd = false; 
+    }
+    if use_hpc {
+        if use_simd {
+            println!("Using HPC ntHash, with SIMD");
+        }
+            else {
+            println!("Using HPC ntHash, scalar");
+        }
+    } else {
+        if use_simd {
+            println!("Using regular ntHash (not HPC), with SIMD");
+        }
+            else {
+            println!("Using regular ntHash (not HPC), scalar");
+        }
+    }
     let params = Params { 
         k,
         l,
         density,
         use_hpc,
-        //debug,
-        //a,
+        use_simd,
+        use_pfx,
+        debug,
+        a,
         c,
         s,
         g,
@@ -217,14 +256,8 @@ fn main() {
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
     Stats::init(threads, output_prefix.to_str().unwrap());
-
-    //let mut bloom : RacyBloom = RacyBloom::new(Bloom::new_with_rate(if use_bf {100_000_000} else {1}, 1e-7)); // a bf to avoid putting stuff into kmer_table too early
     closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);
-    println!("current time after exiting closures {:?}",Utc::now());
-    //if params.a {
-       // println!("Running WFA...");
-       // wfa::run_wfa(&filename, &ref_filename, &matches, &params, ref_threads, threads, ref_queue_len, queue_len, fasta_reads, ref_fasta_reads, &output_prefix);
-   // }
+    //println!("current time after exiting closures {:?}",Utc::now());
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
     println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);
