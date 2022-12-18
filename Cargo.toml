@@ -1,9 +1,9 @@
 [package]
-name = "hifimap"
+name = "mapquik"
 version = "0.1.0"
 authors = ["ekimb, rayan"]
 edition = "2021"
-default-run = "hifimap"
+default-run = "mapquik"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -19,7 +19,8 @@ libc = "0.2.77"
 bio-types = "0.7.0" # for my reimplementation of needleman-wunsch, bio_types is called by bio too
 #seq_io= { path = "./seq_io" }
 seq_io= { git = "https://github.com/markschl/seq_io" }
-wfa = { git = "https://github.com/ekimb/wfa" }
+#wfa = { git = "https://github.com/ekimb/wfa" }
+#seq_io = "0.3.1"
 lzzzz = "0.7"
 xx-bloomfilter = "0.10.0"
 flate2 = "1.0.6"

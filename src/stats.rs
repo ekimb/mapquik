@@ -6,10 +6,7 @@
 // distance is > 2x read length
 
 use std::{fs::File, io::Write, mem::MaybeUninit, sync::Mutex};
-use std::error::Error;
-
 use crate::{Entry};
-use std::sync::atomic::{AtomicUsize, Ordering};
 use fxhash::{hash32};
 
 static ENABLED: bool = false;
@@ -32,7 +29,7 @@ impl Stats {
         {
             if nb_threads != 1
             {
-                //panic!("If stats are enabled, hifimap can only be run in 1 thread");
+                //panic!("If stats are enabled, mapquik can only be run in 1 thread");
                 //seems code works with multithreads..
             }
 
@@ -41,7 +38,7 @@ impl Stats {
             unsafe
             {
             STATS_FILE = match File::create(&stats_path) {
-                Err(why) => panic!("Couldn't create {}: {}", stats_path, why.description()),
+                Err(why) => panic!("Couldn't create {}: {}", stats_path, why.to_string()),
                 Ok(stats_file) =>  MaybeUninit::new(Mutex::new(stats_file)),
             };
             }
@@ -53,7 +50,7 @@ impl Stats {
     pub fn new(q_id: &str) -> Self {
         if ENABLED
         {
-            let mut s = Stats {
+            let s = Stats {
                 q_id: q_id.to_string(),
                 ref_loci: vec![]
             };

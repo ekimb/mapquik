@@ -1,7 +1,6 @@
 /target
 **/*.rs.bk
 *.fa
-*.fa.fai
 *.fasta
 *.fastq
 src/trash.rs
@@ -16,11 +15,15 @@ runs
 *.paf
 *.maf
 *.ref
+*.hist
+*.histo
+*.hist2D
+*.histo2D
+*.pdf
 Cargo.lock
 src/graph.py
 compute_err.py
 .DS_Store
-example/model_qc_clr
 .gitignore
 example/nearperfect-ecoli*
 *.log
@@ -35,4 +38,5 @@ example-map/
 *.merylIndex
 *.merylData
 *.read_stats
-heaptrack*
+*.reads_stats
+heaptrack
