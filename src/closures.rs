@@ -8,8 +8,6 @@ use std::path::Path;
 use crate::BufReadDecompressor;
 use std::fs::{File};
 use std::sync::{Arc};
-use std::io::Write;
-use std::fs::File;
 use seq_io::BaseRecord;
 use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records};
 use dashmap::DashMap;

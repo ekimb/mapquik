@@ -10,9 +10,7 @@
 use std::io::stderr;
 use std::error::Error;
 use std::io::Write;
-use std::io::{BufRead, BufReader};
 use std::collections::HashMap;
-use std::fs::{File};
 use std::collections::HashSet;
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
@@ -177,7 +175,7 @@ fn main() {
     let mut s = 11;
     let mut g = 2000;
     let low_memory = opt.low_memory;
-    //let a = opt.align;
+    let a = false;
     let mut density : FH = 0.01;
     let reference : bool = false;
     let mut use_hpc : bool = true; 
