@@ -87,20 +87,17 @@ and map to a reference genome `reference.fa` in your directory with `mapquik` us
 
 ## Citation
 
-`mapquik` is not yet published. For now, please cite our original mdBG article: [Minimizer-space de Bruijn graphs: Whole-genome assembly of long reads in minutes on a personal computer](https://www.sciencedirect.com/science/article/pii/S240547122100332X) (2021).
-
 ```
-@article {mdbg,
-	author = {Ekim, Bar{\i}{\c s} and Berger, Bonnie and Chikhi, Rayan},
-	title = {Minimizer-space de Bruijn graphs: Whole-genome assembly of long reads in minutes on a personal computer},
-	year = {2021},
-	doi = {10.1016/j.cels.2021.08.009},
-	journal = {Cell Systems}
-	volume={12},
-  	number={10},
-  	pages={958--968},
-  	year={2021},
-  	publisher={Elsevier}
+@article {mapquik,
+	author = {Ekim, Bar{\i}{\c s} and Sahlin, Kristoffer and Medvedev, Paul and Berger, Bonnie and Chikhi, Rayan},
+	title = {mapquik: Efficient low-divergence mapping of long reads in minimizer space},
+	elocation-id = {2022.12.23.521809},
+	year = {2022},
+	doi = {10.1101/2022.12.23.521809},
+	publisher = {Cold Spring Harbor Laboratory},
+	URL = {https://www.biorxiv.org/content/early/2022/12/23/2022.12.23.521809},
+	eprint = {https://www.biorxiv.org/content/early/2022/12/23/2022.12.23.521809.full.pdf},
+	journal = {bioRxiv}
 }
 ```
 
