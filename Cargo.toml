@@ -38,3 +38,12 @@ tikv-jemallocator = "0.5"
 
 [profile.dev]
 opt-level = 3
+
+[profile.release]
+opt-level = 3 # Sets optimizing level to maximum performance with no regard for binary size
+codegen-units = 1 # Instead of spreading code generation over multiple units only use one unit which can lead to better performance at the cost of compilation time
+debug = false # No debug symbols
+debug-assertions = false
+lto = "fat" # Link time optimizations across all dependencies at the cost of higher compilation time
+rpath = false
+panic = "abort"
