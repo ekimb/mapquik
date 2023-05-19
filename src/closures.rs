@@ -60,15 +60,15 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
 
     let ref_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq(); 
+        let ref_str = record.seq().to_ascii_uppercase(); 
         let ref_id = record.id().unwrap();
-        *found = ref_process_read_aux_mer(ref_str, ref_id);
+        *found = ref_process_read_aux_mer(&ref_str, ref_id);
 
     };
     let ref_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq(); 
+        let ref_str = record.seq().to_ascii_uppercase(); 
         let ref_id = record.id().unwrap();
-        *found = ref_process_read_aux_mer(ref_str, ref_id);
+        *found = ref_process_read_aux_mer(&ref_str, ref_id);
     };
     let ref_main_thread_mer = |_found: &mut Option<u64>| { // runs in main thread
         None::<()>
@@ -103,15 +103,15 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
-        let seq_str = record.seq(); 
+        let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap();
-        *found = query_process_read_aux_mer(seq_str, seq_id);
+        *found = query_process_read_aux_mer(&seq_str, seq_id);
 
     };
     let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, Option<String>)| {
-        let seq_str = record.seq(); 
+        let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap();
-        *found = query_process_read_aux_mer(seq_str, seq_id);
+        *found = query_process_read_aux_mer(&seq_str, seq_id);
     };
     // main thread for writing to PAF
     let mut main_thread_mer = |found: &mut (String, Option<String>)| { // runs in main thread
