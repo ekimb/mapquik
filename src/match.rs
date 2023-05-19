@@ -46,10 +46,10 @@ impl Match {
         if let Some(q) = query_it.peek() {
             let re = index.get(&q.get_hash());
             if let Some(r) = re {
-                if self.check(&q, &r, p) {
-                    self.update(&q, &r);
+                if self.check(q, r, p) {
+                    self.update(q, r);
                     query_it.next();
-                    self.extend(query_it, index, &r)
+                    self.extend(query_it, index, r)
                 }
             }
             else {query_it.next();}
@@ -65,7 +65,7 @@ impl fmt::Display for Match {
             true => "-",
             false => "+",
         };
-        write!(f, "QS!{}!QE!{}!RS!{}!RE!{}!SC!{}!RC!{}!\n", self.q_start, self.q_end, self.r_start, self.r_end, self.count, rc)
+        writeln!(f, "QS!{}!QE!{}!RS!{}!RE!{}!SC!{}!RC!{}!", self.q_start, self.q_end, self.r_start, self.r_end, self.count, rc)
     }
 }
 

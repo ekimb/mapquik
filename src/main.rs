@@ -5,13 +5,8 @@
 
 #![allow(unused_variables)]
 #![allow(non_upper_case_globals)]
-#![allow(warnings)]
+//#![allow(warnings)]
 #![feature(iter_advance_by)]
-use std::io::stderr;
-use std::error::Error;
-use std::io::Write;
-use std::collections::HashMap;
-use std::collections::HashSet;
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -22,7 +17,6 @@ use std::io::{BufRead, BufReader};
 use std::mem::{MaybeUninit};
 use std::path::PathBuf;
 use std::time::{Instant};
-use chrono::{Utc};
 use flate2::read::GzDecoder;
 use lzzzz::lz4f::{BufReadDecompressor};
 use rust_seq2kminmers::{FH, KH};
@@ -48,6 +42,8 @@ pub struct Params {
     c: usize, // minimum chain length
     s: usize, // minimum match score (# of matching seeds)
     g: usize, // maximum gap difference
+    b: usize, // buffer increase
+    q: usize, // queue length
 }
 
 /// Try to get memory usage (resident set size) in bytes using the `getrusage()` function from libc.
@@ -160,6 +156,12 @@ struct Opt {
     /// Use parallelfastx (faster uncompressed reads parsing)
     #[structopt(long)]
     parallelfastx: bool,
+    /// buffer size multiplier
+    #[structopt(short, long)]
+    b: Option<usize>,
+    /// queue length
+    #[structopt(short, long)]
+    q: Option<usize>,
 
 }
 
@@ -174,6 +176,8 @@ fn main() {
     let mut c = 4;
     let mut s = 11;
     let mut g = 2000;
+    let mut b = 1;
+    let mut q = 200;
     let low_memory = opt.low_memory;
     let a = false;
     let mut density : FH = 0.01;
@@ -202,6 +206,8 @@ fn main() {
     }
     if opt.k.is_some() {k = opt.k.unwrap()} else {println!("Warning: Using default k value ({}).", k);} 
     if opt.l.is_some() {l = opt.l.unwrap()} else {println!("Warning: Using default l value ({}).", l);}
+    if opt.b.is_some() {b = opt.b.unwrap()} else {println!("Warning: Using default buffer size ({}X).", b);}
+    if opt.q.is_some() {q = opt.q.unwrap()} else {println!("Warning: Using default queue length ({}).", q);}
     if opt.density.is_some() {density = opt.density.unwrap()} else {println!("Warning: Using default density value ({}%).", density * 100.0);}
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
     if opt.chain.is_some() {c = opt.chain.unwrap()} else {println!("Warning: Using default minimum chain length ({}).", c);}
@@ -244,6 +250,8 @@ fn main() {
         c,
         s,
         g,
+        b,
+        q,
     };
     // init some useful objects
     // get file size for progress bar
@@ -252,7 +260,7 @@ fn main() {
     let ref_threads = threads;
     let mut ref_queue_len = threads;
     if low_memory {ref_queue_len = 1;}
-    let queue_len = 200; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
+    let queue_len = params.q; // https://doc.rust-lang.org/std/sync/mpsc/fn.sync_channel.html
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
     Stats::init(threads, output_prefix.to_str().unwrap());

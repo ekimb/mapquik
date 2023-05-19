@@ -11,7 +11,7 @@ pub struct Chain {
 impl Chain {
 
     // New Chain from &Vec of matches.
-    pub fn new(matches: &Vec<Match>) -> Self {
+    pub fn new(matches: &[Match]) -> Self {
         Chain {matches: matches.to_vec()}
     }
 
@@ -56,8 +56,8 @@ impl Chain {
         if u.rc {
             if u_r_s <= v_r_s || self.rc_gap_too_long(u_r_s, u_q_e, v_q_s, v_r_e, g) {return false;}
         }
-        else {
-            if v_r_s <= u_r_s || self.fwd_gap_too_long(u_q_e, u_r_e, v_q_s, v_r_s, g) {return false;} 
+        else if v_r_s <= u_r_s || self.fwd_gap_too_long(u_q_e, u_r_e, v_q_s, v_r_s, g) {
+            return false;
         }
         return true;
     }
