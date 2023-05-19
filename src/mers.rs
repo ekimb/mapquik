@@ -18,7 +18,7 @@ pub fn ref_extract(ref_idx: usize, inp_seq_raw: &[u8], params: &Params, mers_ind
     if inp_seq_raw.len() < l+k-1 {
         return 0;
     }
-    let density = params.density as FH;
+    let density : FH = params.density;
     let mode = if params.use_simd {
         if params.use_hpc {HashMode::HpcSimd} else {HashMode::Simd}
     } else { 
@@ -29,7 +29,8 @@ pub fn ref_extract(ref_idx: usize, inp_seq_raw: &[u8], params: &Params, mers_ind
     for kminmer in iter {
         //println!("{:?}", kminmer);
         // Add a reference k-min-mer to the Index.
-        mers_index.add(kminmer.get_hash(), ref_idx, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
+        //mers_index.add(kminmer.get_hash(), ref_idx, kminmer.start, kminmer.end, kminmer.offset, kminmer.rev);
+        mers_index.add_with_mer(ref_idx, &kminmer);
         count += 1;
         //eprintln!("{}\r", count);
     }
@@ -43,12 +44,12 @@ pub fn extract<'a>(_seq_id: &str, inp_seq_raw: &'a [u8], params: &Params) -> Opt
     if inp_seq_raw.len() < l+k-1 {
         return None;
     }
-    let density = params.density as FH;
+    let density : FH = params.density;
     let mode = if params.use_simd {
-        if params.use_hpc {HashMode::HpcSimd} else {HashMode::Simd}
-    } else { 
-        if params.use_hpc {HashMode::Hpc}     else {HashMode::Regular}
-    };
+                if params.use_hpc {HashMode::HpcSimd} else {HashMode::Simd}
+    } 
+    else if params.use_hpc {HashMode::Hpc} 
+    else {HashMode::Regular};
     return Some(KminmersIterator::new(inp_seq_raw, l, k, density, mode).unwrap());
 }
 
@@ -56,18 +57,18 @@ pub fn extract<'a>(_seq_id: &str, inp_seq_raw: &'a [u8], params: &Params) -> Opt
 pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>, index: &ReadOnlyIndex) -> HashMap<usize, Vec<Match>> {
     let mut matches_per_ref = HashMap::<usize, Vec<Match>>::new();
     if query_it_raw.is_none() {return matches_per_ref;}
-    let mut stats = Stats::new(query_id);
+    //let mut stats = Stats::new(query_id);
     let mut query_it = query_it_raw.as_mut().unwrap().peekable();
     while let Some(q) = query_it.next() {
         let re = index.get(&q.get_hash());
         if let Some(r) = re {
-            let mut h = Match::new(&q, &r);
-            h.extend(&mut query_it, index, &r);
-            stats.add(&r);
+            let mut h = Match::new(&q, r);
+            h.extend(&mut query_it, index, r);
+            //stats.add(&r);
             matches_per_ref.entry(r.id).or_insert(Vec::new()).push(h);
         }
     }
-    stats.finalize();
+    //stats.finalize();
     matches_per_ref
 }
 
@@ -80,15 +81,15 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
     for e in matches_per_ref.iter() {
         let (r_id, matches_raw) = e;
         let mut c = Chain::new(matches_raw);
-        let tp = c.get_match(&params);
+        let tp = c.get_match(params);
         if let Some(t) = tp {all_pseudocoords.push((*r_id, t));}
     }
     let coords_count = all_pseudocoords.len();
-    return match coords_count {
+    match coords_count {
         0 => None,
         1 => Some(find_coords(q_id, q_len, ref_map,  &all_pseudocoords[0])),
         _ => determine_best_match(q_id, q_len, ref_map, &all_pseudocoords, coords_count),
-    };
+    }
        /* let (v, c) = &final_matches[0];
         if params.a {
             let (q_coords, r_coords) = c.get_remaining_seqs(&v);
@@ -100,19 +101,19 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
         }*/
 }
 
-pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &Vec<PseudoChainCoordsTuple>, coords_count: usize) -> Option<String> {
+pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &[PseudoChainCoordsTuple], coords_count: usize) -> Option<String> {
     let (max_i, _, max_count, next_max_count) = find_largest_two_chains(all_pseudocoords, coords_count);
     if max_count == next_max_count {return None;}
     else {return Some(find_coords(q_id, q_len, ref_map, &all_pseudocoords[max_i]));}
 }
 
-pub fn find_largest_two_chains(all_pseudocoords: &Vec<PseudoChainCoordsTuple>, coords_count: usize) -> (usize, usize, usize, usize) {
+pub fn find_largest_two_chains(all_pseudocoords: &[PseudoChainCoordsTuple], coords_count: usize) -> (usize, usize, usize, usize) {
     let mut max = 0;
     let mut max_count = 0;
     let mut second_max = 0;
     let mut second_max_count = 0;
-    for i in 0..coords_count {
-        let (_, coord) = all_pseudocoords[i];
+    for (i, tup) in all_pseudocoords.iter().enumerate() {
+        let (_, coord) = tup;
         let count = coord.5;
         if count > max_count {
             second_max = max;
