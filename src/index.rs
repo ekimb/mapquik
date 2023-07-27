@@ -2,6 +2,7 @@
 // Contains the "Index" and "Entry" structs, which describe how reference k-min-mers are stored. 
 
 use crate::{KH};
+use rust_seq2kminmers::{KminmerType as Kminmer, KminmerHash};
 use dashmap::{DashMap, ReadOnlyView};
 use std::hash::BuildHasherDefault;
 use core::hash::Hasher;
@@ -33,7 +34,7 @@ impl Hasher for KnownHasher {
 
     #[inline]
     fn finish(&self) -> u64 {
-        self.hash.expect("Nothing was hashed") as u64
+        self.hash.expect("Nothing was hashed")
     }
 }
 
@@ -51,6 +52,10 @@ impl Entry {
     // Create a new Entry.
     pub fn new(id: usize, start: usize, end: usize, offset: usize, rc: bool) -> Self {
         Entry {id, start, end, offset, rc}
+    }
+
+    pub fn new_with_mer(id: usize, mer: &KminmerHash) -> Self {
+        Entry {id, start: mer.start, end: mer.end, offset:mer.offset, rc: mer.rev}
     }
 
     // An empty Entry.
@@ -89,6 +94,12 @@ impl Index {
     // Add an Entry to the Index. If an Entry for the hash h already exists, insert None to prevent duplicates.
     pub fn add(&self, h: KH, id: usize, start: usize, end: usize, offset: usize, rc: bool) {
         let e = self.index.insert(h, Entry::new(id, start, end, offset, rc));
+        if e.is_some() {self.index.insert(h, Entry::empty());}
+    }
+
+    pub fn add_with_mer(&self, id: usize, mer: &Kminmer) {
+        let h = mer.hash;
+        let e = self.index.insert(h, Entry::new_with_mer(id, mer));
         if e.is_some() {self.index.insert(h, Entry::empty());}
     }
 }

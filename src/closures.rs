@@ -1,18 +1,14 @@
 // closures.rs
 // Functions for FASTA parsing and invoking all necessary functions for mapping and alignment.
 
-use std::io::{self};
 use std::error::Error;
-use std::io::{BufRead, BufReader, Write, BufWriter};
-use std::path::Path;
-use crate::BufReadDecompressor;
+use std::io::{Write, BufWriter};
 use std::fs::{File};
-use std::sync::{Arc};
 use seq_io::BaseRecord;
-use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records};
+use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records, read_process_fastx_records};
 use dashmap::DashMap;
 use super::mers;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use super::Params;
 use crate::get_reader;
 use std::time::Instant;
@@ -23,7 +19,7 @@ use rust_parallelfastx::parallel_fastx;
 use std::sync::mpsc;
 
 // Main function for all FASTA parsing + mapping / alignment functions.
-pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &PathBuf) {
+pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &Path) {
 
     let mers_index = Index::new(); // Index of reference k-min-mer entries
     //let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
@@ -60,19 +56,19 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         let nb_mers = index_mers(ref_id, ref_str, params);
         //if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
         println!("Indexed reference {}: {} k-min-mers.", ref_id, nb_mers);
-        return Some(1)
+        Some(1)
     };
 
     let ref_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq(); 
+        let ref_str = record.seq().to_ascii_uppercase(); 
         let ref_id = record.id().unwrap();
-        *found = ref_process_read_aux_mer(&ref_str, &ref_id);
+        *found = ref_process_read_aux_mer(&ref_str, ref_id);
 
     };
     let ref_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq(); 
+        let ref_str = record.seq().to_ascii_uppercase(); 
         let ref_id = record.id().unwrap();
-        *found = ref_process_read_aux_mer(&ref_str, &ref_id);
+        *found = ref_process_read_aux_mer(&ref_str, ref_id);
     };
     let ref_main_thread_mer = |_found: &mut Option<u64>| { // runs in main thread
         None::<()>
@@ -83,13 +79,13 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     // Start processing references
 
     let start = Instant::now();
-    let (buf,_dontcare) = get_reader(&ref_filename);
+    let (buf,_dontcare) = get_reader(ref_filename);
     if ref_fasta_reads {
-        let reader = seq_io::fasta::Reader::new(buf);
+        let reader = seq_io::fasta::Reader::with_capacity(buf, 64*1024*params.b);
         read_process_fasta_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fasta_mer, |_record, found| {ref_main_thread_mer(found)}).ok();
     }
     else {
-        let reader = seq_io::fastq::Reader::new(buf);
+        let reader = seq_io::fastq::Reader::with_capacity(buf, 64*1024*params.b);
         read_process_fastq_records(reader, ref_threads as u32, ref_queue_len, ref_process_read_fastq_mer, |_record, found| {ref_main_thread_mer(found)}).ok();
     }
     let duration = start.elapsed();
@@ -103,21 +99,20 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
         //if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
-        let match_opt = mers::find_matches(&seq_id, seq_str.len(), &seq_str, &ref_map, &mers_index, params); //&aln_coords);
-        return (seq_id.to_string(), match_opt)
+        let match_opt = mers::find_matches(seq_id, seq_str.len(), seq_str, &ref_map, &mers_index, params); //&aln_coords);
+        (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
-        let seq_str = record.seq(); 
+        let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap();
-        *found = query_process_read_aux_mer(&seq_str, &seq_id);
+        *found = query_process_read_aux_mer(&seq_str, seq_id);
 
     };
     let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, Option<String>)| {
-        let seq_str = record.seq(); 
+        let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap();
-        *found = query_process_read_aux_mer(&seq_str, &seq_id);
+        *found = query_process_read_aux_mer(&seq_str, seq_id);
     };
-
     // main thread for writing to PAF
     let mut main_thread_mer = |found: &mut (String, Option<String>)| { // runs in main thread
         let (_, match_opt) = found;
@@ -180,16 +175,16 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     */
 
     let query_start = Instant::now();
-    let (buf, are_reads_compressed) = get_reader(&filename);
+    let (buf, are_reads_compressed) = get_reader(filename);
     if are_reads_compressed || (!params.use_pfx) {  // fall-back to seq_io parallel
         // spawn read processing threads
         if fasta_reads {
-            let reader = seq_io::fasta::Reader::new(buf);
-            read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
+            let reader = seq_io::fasta::Reader::with_capacity(buf, 64*1024*params.b);
+            let _ = read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
         }
         else {
-            let reader = seq_io::fastq::Reader::new(buf);
-            read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
+            let reader = seq_io::fastq::Reader::with_capacity(buf, 64*1024*params.b);
+            let _ = read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
         }
     } else { // rust-parallelfastx is a more efficient fastx parser than seq_io when reading from disk is fast and file is uncompressed
         // the only downside is that it will display a large RSS footprint as the reads will be
@@ -197,7 +192,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         println!("Warning: using experimental rust-parallelfastx (exciting!)");
         let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
         let task = |seq_str: &[u8], seq_id: &str|  {
-            let (_osef, match_opt) = query_process_read_aux_mer(&seq_str, &seq_id);
+            let (_osef, match_opt) = query_process_read_aux_mer(seq_str, seq_id);
             if let Some(l) = match_opt {
                 paf_mpsc_send.send(Some(l));
             }

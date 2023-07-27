@@ -39,6 +39,7 @@ example-map/
 *.merylData
 *.read_stats
 *.reads_stats
+*.stats
 heaptrack
 experiments/mapquik-table1.sh
 experiments/maize/mapquik-table1-maize.sh

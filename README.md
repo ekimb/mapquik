@@ -1,16 +1,20 @@
 
-`mapquik`: Efficient low-divergence mapping of long reads in minimizer space
+`mapquik`: Efficient mapping of accurate long reads in minimizer space
 =========
 
 `mapquik` is an ultra-fast read mapper based on $k$-min-mers (matches of $k$ consecutively-sampled minimizers). It aligns long and accurate reads such as [PacBio HiFi](https://www.pacb.com/smrt-science/smrt-sequencing/hifi-reads-for-highly-accurate-long-read-sequencing/) to a reference genome.
 
 ## Rationale
 
+The underlying seed constructs ($k$-mers) in state-of-the-art long-read mappers are tailored to noisy reads, and small seed sizes induce longer computation times due to multiple potential mapping locations. Recent advances in short-read alignment methods have demonstrated that [98\% of many organisms' genomes are non-repetitive and can be uniquely aligned to with longer seeds](https://peerj.com/articles/9338/). Therefore, we explore the use of longer, non-exact seeds ($k$-min-mers) in accurate long reads. See [our manuscript](https://genome.cshlp.org/content/early/2023/06/29/gr.277679.123) for details.
+
 ## Limitations
+The mapping performance of `mapquik` degrades markedly when identity between reads and the reference is lower than $97$\%, and less than $1$\% of the reads are mapped at $Q60$ for identities below $93$\%. Therefore, `mapquik` is not suitable for mapping PacBio CLR reads, and potentially also Oxford Nanopore reads until base-calling consistently reaches identity levels above $98$\%. 
+
 
 ## Installation
 
-Pre-requisites: a working Rust environment (https://rustup.rs/).
+Pre-requisites: [A working Rust environment](https://rustup.rs/).
 
 Clone the repository, and run 
 
@@ -45,7 +49,6 @@ To simulate a larger set of reads using pbsim and map, type:
 
 `bash simulate_pbsim.sh && bash run_ecoli_full.sh`
 
-
 ## Parameters
 
 For further information on usage and parameters, run
@@ -75,6 +78,10 @@ and map to a reference genome `reference.fa` in your directory with `mapquik` us
 
 ## Performance
 
+mapquik significantly accelerates the seeding and chaining steps for both the human and maize genomes with $>96$\% sensitivity and near-perfect specificity. On the human genome, for both real and simulated reads, mapquik achieves a $37\times$ speed-up over `minimap2`, and on the maize genome, a $410\times$ speed-up over `minimap2`. 
+
+`mapquik` indexing is $9\times$ faster than `minimap2`, which is of independent interest.
+
 ## License
 
 `mapquik` is freely available under the [MIT License](https://opensource.org/licenses/MIT).
@@ -88,16 +95,13 @@ and map to a reference genome `reference.fa` in your directory with `mapquik` us
 ## Citation
 
 ```
-@article {mapquik,
-	author = {Ekim, Bar{\i}{\c s} and Sahlin, Kristoffer and Medvedev, Paul and Berger, Bonnie and Chikhi, Rayan},
-	title = {mapquik: Efficient low-divergence mapping of long reads in minimizer space},
-	elocation-id = {2022.12.23.521809},
-	year = {2022},
-	doi = {10.1101/2022.12.23.521809},
-	publisher = {Cold Spring Harbor Laboratory},
-	URL = {https://www.biorxiv.org/content/early/2022/12/23/2022.12.23.521809},
-	eprint = {https://www.biorxiv.org/content/early/2022/12/23/2022.12.23.521809.full.pdf},
-	journal = {bioRxiv}
+@article{mapquik,
+  title={Efficient mapping of accurate long reads in minimizer space with mapquik},
+  author={Ekim, Bar{\i}{\c{s}} and Sahlin, Kristoffer and Medvedev, Paul and Berger, Bonnie and Chikhi, Rayan},
+  journal={Genome Research},
+  pages={gr--277679},
+  year={2023},
+  publisher={Cold Spring Harbor Laboratory}
 }
 ```
 
