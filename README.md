@@ -31,7 +31,7 @@ The nightly version of `cargo` is required because `mapquik` uses experimental l
 
 ## Input
 
-`mapquik` takes a single FASTA/FASTQ input (`gzip`-compressed or not) as input. Multi-line sequences, and sequences with lowercase characters, are not supported. 
+`mapquik` takes a single FASTA/FASTQ input (`gzip`-compressed or not) as input. Multi-line sequences are not supported. 
 
 ## Output
 
