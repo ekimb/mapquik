@@ -102,7 +102,8 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
                 // change this when wfa2 is enabled
                 //wfa2(q, &r, &mut wfa2_aligner.as_mut().unwrap(), &mut align_stats)
                 //wfa2(q, &r, &mut wfa2_aligner, &mut align_stats)
-                (0, String::new())
+                (0, String::new()),
+            _ =>  (0, String::new())
         };
         println!("{}!{}!{}!\t{}\t{}", seq_id, q_tup.0, q_tup.1, score, cigar);
         // wflambda(q, &r);

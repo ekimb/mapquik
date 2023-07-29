@@ -89,25 +89,31 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
         if let Some(t) = tp {all_pseudocoords.push((*r_id, t));}
     }
     let coords_count = all_pseudocoords.len();
-    let paf_line = match coords_count {
+    let res_chain = match coords_count {
         0 => None,
-        1 => Some(find_coords(q_id, q_len, ref_map,  &all_pseudocoords[0])),
+        1 => Some((find_coords(q_id, q_len, ref_map,  &all_pseudocoords[0]), 0)),
         _ => determine_best_match(q_id, q_len, ref_map, &all_pseudocoords, coords_count),
     };
+    if res_chain.is_none() { return None; }
+    let (paf_line, pc_idx) = res_chain.unwrap();
     if params.a {
-        // TODO that code needs to be updated.. seems we don't remember the full chain anymore, and
-        // get_remaining_seqs needs a very particular format
-        let (v, c) = m;
-        let (q_coords, r_coords) = c.get_remaining_seqs(&v);
+        // TODO that code needs to be checked.. seems we don't remember the full chain anymore
+        let r_idx = all_pseudocoords[pc_idx].0;
+        let rtup = ref_map.get(&r_idx).unwrap();
+        let r_id = &rtup.0;
+        let matches_raw = &matches_per_ref[&r_idx];
+        let mut c = Chain::new(&matches_raw);
+        let t = c.get_match(params).unwrap();
+        let (q_coords, r_coords) = c.get_remaining_seqs(&t);
         for i in 0..q_coords.len() {
             let q_coord_tup = q_coords[i];
             let r_coord_tup = r_coords[i];
-            aln_coords.get_mut(&v.1).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0,
-                                                                                                       q_coord_tup.1), v.9));
+            aln_coords.get_mut(r_id).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0,
+                                                                                                       q_coord_tup.1), t.0));
 
         }
     }
-    paf_line
+    Some(paf_line)
 }
 
 // Chatgpt:
@@ -115,10 +121,10 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
 // the best match. If there are multiple matches with the same count, it returns None. Otherwise, it returns 
 // the coordinates of the best match. This function is used in the alignment process to select the best 
 // alignment for a query sequence from a set of potential alignments.
-pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &[PseudoChainCoordsTuple], coords_count: usize) -> Option<String> {
+pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &[PseudoChainCoordsTuple], coords_count: usize) -> Option<(String,usize)> {
     let (max_i, _, max_count, next_max_count) = find_largest_two_chains(all_pseudocoords, coords_count);
     if max_count == next_max_count {return None;}
-    else {return Some(find_coords(q_id, q_len, ref_map, &all_pseudocoords[max_i]));}
+    else {return Some((find_coords(q_id, q_len, ref_map, &all_pseudocoords[max_i]), max_i));}
 }
 
 // Chatgpt:

@@ -184,11 +184,12 @@ impl Chain {
     
 
     // Obtains query and reference intervals that are not covered by a Match in the final Chain object (only for base-level alignment).
-    /*pub fn get_remaining_seqs(&self, m: &Match) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    pub fn get_remaining_seqs(&self, m: &PseudoChainCoords) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
         let mut q_coords = Vec::<(usize, usize)>::new();
         let mut r_coords = Vec::<(usize, usize)>::new();
 
-        let (q_id, r_id, q_len, r_len, q_start, q_end, r_start, r_end, score, rc, mapq) = m;
+        let (rc, q_start, q_end, r_start, r_end, score, mapq) = m;
+
         if !rc {
             let mut prev_q_end = q_start;
             let mut prev_r_end = r_start;
@@ -197,18 +198,18 @@ impl Chain {
                 false => "+",
             };
             for i in 0..self.len() {
-                let match = self.nth(i);
-                let rc_s = match match.rc {
+                let m = self.nth(i);
+                let rc_s = match m.rc {
                     true => "-",
                     false => "+",
                 };
                 //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
                 //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
-                if prev_q_end < &match.q_start && &match.r_start > prev_r_end {
-                    q_coords.push((*prev_q_end, match.q_start));
-                    r_coords.push((*prev_r_end, match.r_start));
-                    prev_q_end = &match.q_end;
-                    prev_r_end = &match.r_end;
+                if prev_q_end < &m.q_start && &m.r_start > prev_r_end {
+                    q_coords.push((*prev_q_end, m.q_start));
+                    r_coords.push((*prev_r_end, m.r_start));
+                    prev_q_end = &m.q_end;
+                    prev_r_end = &m.r_end;
                 }
             }
             //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, prev_r_end, r_end);
@@ -226,19 +227,19 @@ impl Chain {
                 false => "+",
             };
             for i in 0..self.len() {
-                let match = self.nth(i);
-                let rc_s = match match.rc {
+                let m = self.nth(i);
+                let rc_s = match m.rc {
                     true => "-",
                     false => "+",
                 };
-                if match.r_end < *r_start {break;}
+                if m.r_end < *r_start {break;}
                 //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
                 //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
-                if prev_q_end < &match.q_start && &match.r_end < prev_r_start {
-                    q_coords.push((*prev_q_end, match.q_start));
-                    r_coords.push((match.r_end, *prev_r_start));
-                    prev_q_end = &match.q_end;
-                    prev_r_start = &match.r_start;
+                if prev_q_end < &m.q_start && &m.r_end < prev_r_start {
+                    q_coords.push((*prev_q_end, m.q_start));
+                    r_coords.push((m.r_end, *prev_r_start));
+                    prev_q_end = &m.q_end;
+                    prev_r_start = &m.r_start;
                 }
             }
             //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, r_start, prev_r_start);
@@ -248,7 +249,7 @@ impl Chain {
             }
         }
         (q_coords, r_coords)
-    } */
+    } 
 }
 
 // Pretty-prints a Chain.
