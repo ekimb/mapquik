@@ -9,14 +9,19 @@ use bio::alphabets::dna;
 use std::borrow::Cow;
 use bio::alignment::pairwise::*;
 
+/*
 use rust_wfa2::aligner::*;
 use wfa::wflambda::wf_align as wflambda_align;
 use wfa::wfa::wf_align;
 use libwfa::{affine_wavefront::*, bindings::*, mm_allocator::*, penalties::*};
-
+*/
 
 
 // Obtain reference locations that need to be aligned, and generate pointers to those string slices. These will then be aligned when the queries are parsed for a second time.
+// Output: coordinate locations that need to be aligned in aln_coords (for the reference) and
+//         aln_coords_q (for the query); pointers to the string slices of the reference that need to be aligned,
+//         storing them in aln_seqs_cow. 
+// Usage: in closures.rs in the closure 'ref_process_read_aux_aln'.
 pub fn get_slices(ref_id: &str, ref_str: &[u8], aln_coords: &DashMap<String, Vec<AlignCand>>, aln_coords_q:&DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), Cow<[u8]>> ) {
     let aln_coord_v = aln_coords.get(ref_id).unwrap();
     for (r_tup, q_id, q_tup, rc) in aln_coord_v.iter() {
@@ -36,19 +41,14 @@ pub struct AlignStats {
 }
 
 // Retrieve query locations and pointer to reference string, and run alignment on query and string slice (currently WFA from libwfa).
-pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), Cow<[u8]>>) -> AlignStats {
-    // Not sure if there is a better buffer size to lower max RSS / runtime
-    let mut penalties = AffinePenalties {
-        match_: 0,
-        mismatch: 4,
-        gap_opening: 6,
-        gap_extension: 2,
-    };
-    
-    let mode = 1; // wfa1
+// Output: an AlignStats struct which  contains the number of successful and failed alignments. 
+// Usage: in closures.rs in the closure 'query_process_read_aux_aln'.
+pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), Cow<[u8]>>) -> AlignStats {    
+    let mode = 0; // rust-bio SW
+    //let mode = 1; // wfa1
     //let mode = 2; // wfa2
     
-    // Failed attempt to use Options to enable either WFA1 or WFA2. Didnt work, due to even having
+    // 1) Failed attempt to use Options to enable either WFA1 or WFA2. Didnt work, due to even having
     // both codes at the same time crash wfa1.
     // --
     // WFA1 and WFA2 don't play nice together. Seems one cannot have both allocators declared for both libs 
@@ -67,7 +67,19 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
         //wfa2_aligner.set_heuristic(Heuristic::BandedAdaptive(-10, 10, 1));
     //}
     
-    let wfa1_alloc = libwfa::mm_allocator::MMAllocator::new(BUFFER_SIZE_512M as u64); 
+    // 2) So instead I'm just going to comment/uncomment here:
+    
+    // wfa1
+    //let wfa1_alloc = libwfa::mm_allocator::MMAllocator::new(BUFFER_SIZE_512M as u64); 
+    /*
+    let mut penalties = AffinePenalties {
+        match_: 0,
+        mismatch: 4,
+        gap_opening: 6,
+        gap_extension: 2,
+    };*/
+
+    // wfa2
     //let mut wfa2_aligner = WFAlignerGapAffine::new(4, 6, 2, AlignmentScope::Alignment, MemoryModel::MemoryHigh); // just *uncommenting* this line, which supposedly does not much, is enough to crash wfa1 (try it!)
     //wfa2_aligner.set_heuristic(Heuristic::None);
     //wfa2_aligner.set_heuristic(Heuristic::BandedAdaptive(-10, 10, 1));
@@ -79,26 +91,27 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
         let mut r = aln_seqs_cow.get(&(seq_id.to_string(), *q_tup)).unwrap();
         //println!("{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len());
         let q = &seq_str[q_tup.0..q_tup.1];
-        let (score, cigar) = if mode == 1 {
+        let (score, cigar) = match mode {
+            0 => sw(q, &r), 
+            1 => 
+                // change this when wfa1 is enabled
                 //libwfa(q, &r, wfa1_alloc.as_ref().unwrap(), &mut penalties, &mut align_stats)
-                libwfa(q, &r, &wfa1_alloc, &mut penalties, &mut align_stats)
-                //(0, String::new())
-        }
-        else
-        {   
+                //libwfa(q, &r, &wfa1_alloc, &mut penalties, &mut align_stats),
+                (0, String::new()),
+            2 => 
                 // change this when wfa2 is enabled
-                (0, String::new())
                 //wfa2(q, &r, &mut wfa2_aligner.as_mut().unwrap(), &mut align_stats)
                 //wfa2(q, &r, &mut wfa2_aligner, &mut align_stats)
+                (0, String::new())
         };
         println!("{}!{}!{}!\t{}\t{}", seq_id, q_tup.0, q_tup.1, score, cigar);
         // wflambda(q, &r);
-        // sw(q, &r);        
     }
     align_stats
 }
 
-// WFA implementation from https://github.com/chfi/rs-wfa.
+// WFA implementation from https://github.com/chfi/rs-wfa
+/*
 pub fn libwfa(q_str: &[u8], ref_str: &[u8], alloc: &MMAllocator, penalties: &mut AffinePenalties, align_stats : &mut AlignStats) -> (isize, String) {
     let pat_len = q_str.len();
     let text_len = ref_str.len();
@@ -211,6 +224,7 @@ pub fn wflambda(q: &[u8], t: &[u8]) -> (usize, String) {
     ).unwrap();
     (score, cigar)
 }
+*/
 
 // Smith-Waterman alignment from rust-bio, mainly for debugging.
 

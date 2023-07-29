@@ -7,24 +7,27 @@ use std::fs::{File};
 use seq_io::BaseRecord;
 use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records, read_process_fastx_records};
 use dashmap::DashMap;
-use super::mers;
+use crate::mers::{Offset, AlignCand};
+use crate::mers;
 use std::path::{Path, PathBuf};
 use super::Params;
 use crate::get_reader;
 use std::time::Instant;
 use crate::index::{Index, ReadOnlyIndex};
-//use crate::align::{get_slices, align_slices, AlignStats};
+use crate::align::{get_slices, align_slices, AlignStats};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use rust_parallelfastx::parallel_fastx;
 use std::sync::mpsc;
+use std::sync::Arc;
+use std::borrow::Cow;
 
 // Main function for all FASTA parsing + mapping / alignment functions.
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &Path) {
 
     let mers_index = Index::new(); // Index of reference k-min-mer entries
-    //let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
-    //let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
-    //let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
+    let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
+    let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
+    let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
     let ref_i = AtomicUsize::new(0);
     let ref_map : DashMap<usize, (String, usize)> = DashMap::new(); // Sequence lengths per reference
 
@@ -54,7 +57,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         let nb_mers = index_mers(ref_id, ref_str, params);
-        //if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
+        if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
         println!("Indexed reference {}: {} k-min-mers.", ref_id, nb_mers);
         Some(1)
     };
@@ -98,8 +101,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     // Closures for mapping queries to references
 
     let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
-        //if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
-        let match_opt = mers::find_matches(seq_id, seq_str.len(), seq_str, &ref_map, &mers_index, params); //&aln_coords);
+        if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
+        let match_opt = mers::find_matches(seq_id, seq_str.len(), seq_str, &ref_map, &mers_index, params, &aln_coords);
         (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
@@ -125,7 +128,6 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     //
 
     // Closures for base-level alignment (obtaining reference sequence slices)
-    /*
     let ref_process_read_aux_aln = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         get_slices(ref_id, ref_str, &aln_coords, &aln_coords_q, &aln_seqs_cow);
         return Some(1)
@@ -172,7 +174,6 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         None::<()>
     };
 
-    */
 
     let query_start = Instant::now();
     let (buf, are_reads_compressed) = get_reader(filename);

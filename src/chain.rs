@@ -120,6 +120,13 @@ impl Chain {
         self.matches = max_chain.into_iter().cloned().collect();
     }*/
 
+	// Chatgpt:
+	// This function filters the matches within the Chain object to retain only those matches 
+	// that are colinear with the match having the maximum count of k-min-mers. The function 
+	// first identifies the match with the maximum count and then invokes the 'colinear_matches_per_match' 
+	// method to find all matches that are colinear with this best match. These colinear matches 
+	// are then stored in the Chain object, replacing the original matches. If the Chain only 
+	// contains one match, no filtering is performed. 
     pub fn filter_matches_max(&mut self, g: usize) {
         let len = self.len();
         if len <= 1 {return;}
@@ -142,8 +149,15 @@ impl Chain {
     }
 
     // Wrapper function that filters bad matches, checks for consistency, and obtains final coordinates.
-
     // Outputs a Match object (see mers.rs for a definition).
+    // Chatgpt:
+	// This function filters the matches within the Chain object, ensuring 
+	// they are compatible and meet the criteria defined in the Params struct. It then determines the 
+	// final coordinates for the alignment and returns a PseudoChainCoords object representing this alignment.
+	// This function is a key part of the alignment process as it finalizes the matches and provides 
+	// the output that can be used for subsequent analysis or display. It integrates several steps of 
+	// the alignment process into a unified workflow, including filtering matches, checking for colinearity, 
+	// and calculating final alignment coordinates.
     pub fn get_match(&mut self, params: &Params) -> Option<PseudoChainCoords> {
         let len = self.len();
         if len > 1 {
