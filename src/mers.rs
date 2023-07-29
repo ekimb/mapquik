@@ -97,20 +97,20 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
     if res_chain.is_none() { return None; }
     let (paf_line, pc_idx) = res_chain.unwrap();
     if params.a {
-        // TODO that code needs to be checked.. seems we don't remember the full chain anymore
         let r_idx = all_pseudocoords[pc_idx].0;
         let rtup = ref_map.get(&r_idx).unwrap();
         let r_id = &rtup.0;
         let matches_raw = &matches_per_ref[&r_idx];
         let mut c = Chain::new(&matches_raw);
         let t = c.get_match(params).unwrap();
+        //println!("trying to align chain {:?}",t);
         let (q_coords, r_coords) = c.get_remaining_seqs(&t);
         for i in 0..q_coords.len() {
+            //println!("q_coords {:?} r_coords {:?}",q_coords[i], r_coords[i]);
             let q_coord_tup = q_coords[i];
             let r_coord_tup = r_coords[i];
             aln_coords.get_mut(r_id).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0,
                                                                                                        q_coord_tup.1), t.0));
-
         }
     }
     Some(paf_line)

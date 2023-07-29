@@ -89,7 +89,7 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
     let aln_coords_v = aln_coords_q.get(seq_id).unwrap();
     for q_tup in aln_coords_v.iter() {
         let mut r = aln_seqs_cow.get(&(seq_id.to_string(), *q_tup)).unwrap();
-        //println!("{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len());
+        //println!("{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len());
         let q = &seq_str[q_tup.0..q_tup.1];
         let (score, cigar) = match mode {
             0 => sw(q, &r), 

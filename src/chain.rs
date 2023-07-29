@@ -177,7 +177,7 @@ impl Chain {
         let last = self.last();
         let rc = first.rc;
         return match rc && self.len() > 1 {
-            true => Some((rc, first.q_start, last.q_end - 1, last.r_start, first.r_end - 1, score, mapq)),
+            true =>  Some((rc, first.q_start, last.q_end - 1, last.r_start, first.r_end - 1, score, mapq)),
             false => Some((rc, first.q_start, last.q_end - 1, first.r_start, last.r_end - 1, score, mapq)),
         };
     }
@@ -203,8 +203,8 @@ impl Chain {
                     true => "-",
                     false => "+",
                 };
-                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
-                //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
+                //println!("fw QALN!{}!{}!RALN!{}!{}", prev_q_end, m.q_start, prev_r_end, m.r_start);
+                //println!("fw QMMM!{}!{}!RMMM!{}!{}", m.q_start, m.q_end, m.r_start, m.r_end); 
                 if prev_q_end < &m.q_start && &m.r_start > prev_r_end {
                     q_coords.push((*prev_q_end, m.q_start));
                     r_coords.push((*prev_r_end, m.r_start));
@@ -212,7 +212,7 @@ impl Chain {
                     prev_r_end = &m.r_end;
                 }
             }
-            //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, prev_r_end, r_end);
+            //println!("fw QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, prev_r_end, r_end);
             if prev_q_end != q_end {
                 q_coords.push((*prev_q_end, *q_end));
                 r_coords.push((*prev_r_end, *r_end));
@@ -233,8 +233,8 @@ impl Chain {
                     false => "+",
                 };
                 if m.r_end < *r_start {break;}
-                //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, match.q_start, prev_r_end, match.r_start);
-                //println!("QMMM!{}!{}!RMMM!{}!{}", match.q_start, match.q_end, match.r_start, match.r_end); 
+                //println!("rc QALN!{}!{}!RALN!{}!{}", prev_q_end, m.q_start, m.r_end, prev_r_start);
+                //println!("rc QMMM!{}!{}!RMMM!{}!{}", m.q_start, m.q_end, m.r_start, m.r_end); 
                 if prev_q_end < &m.q_start && &m.r_end < prev_r_start {
                     q_coords.push((*prev_q_end, m.q_start));
                     r_coords.push((m.r_end, *prev_r_start));
@@ -242,8 +242,8 @@ impl Chain {
                     prev_r_start = &m.r_start;
                 }
             }
-            //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, r_start, prev_r_start);
-            if prev_q_end != q_end {
+            //println!("rc QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, r_start, prev_r_start);
+            if prev_q_end <= q_end { // huh for some reason prev_q_end can be q_end+1
                 q_coords.push((*prev_q_end, *q_end));
                 r_coords.push((*r_start, *prev_r_start));
             }

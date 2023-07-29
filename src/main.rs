@@ -142,8 +142,8 @@ struct Opt {
     threads: Option<usize>,
     /// Enable base-level alignment (WIP)
     /// 
-    //#[structopt(short, long)]
-   // align: bool,
+    #[structopt(short, long)]
+    align: bool,
     /// Enable low-memory reference FASTA parsing
     /// 
     #[structopt(long)]
@@ -180,7 +180,7 @@ fn main() {
     let mut b = 1;
     let mut q = 200;
     let low_memory = opt.low_memory;
-    let a = false;
+    let mut a = false;
     let mut density : FH = 0.01;
     let reference : bool = false;
     let mut use_hpc : bool = true; 
@@ -217,6 +217,7 @@ fn main() {
     output_prefix = PathBuf::from(format!("mapquik-k{}-d{}-l{}", k, density, l));
     if opt.prefix.is_some() {output_prefix = opt.prefix.unwrap();} else {println!("Warning: Using default output prefix ({}).", output_prefix.to_str().unwrap());}
     let debug = opt.debug;
+    if opt.align {a = true;} else {println!("Warning: Using default mapping mode (no base-level alignment)");}
     if opt.nohpc  { use_hpc = false; }
     if opt.nosimd { use_simd = false; }
     if opt.parallelfastx { use_pfx = true; }

@@ -25,9 +25,9 @@ use std::borrow::Cow;
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &Path) {
 
     let mers_index = Index::new(); // Index of reference k-min-mer entries
-    let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
-    let mut aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
-    let mut aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
+    let aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
+    let aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
+    let aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
     let ref_i = AtomicUsize::new(0);
     let ref_map : DashMap<usize, (String, usize)> = DashMap::new(); // Sequence lengths per reference
 
@@ -156,14 +156,13 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         return Some(align_stats)
     };
     let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<AlignStats>| {
-        let seq_str = record.seq(); 
+        let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_aln(&seq_str, &seq_id);
-        //if params.a {eprintln!("{}", seq_id);}
     
     };
     let query_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<AlignStats>| {
-        let seq_str = record.seq(); 
+        let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_aln(&seq_str, &seq_id);
     };
@@ -175,59 +174,59 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
 
 
+	// Starts mapping
+
     let query_start = Instant::now();
-    let (buf, are_reads_compressed) = get_reader(filename);
-    if are_reads_compressed || (!params.use_pfx) {  // fall-back to seq_io parallel
-        // spawn read processing threads
-        if fasta_reads {
-            let reader = seq_io::fasta::Reader::with_capacity(buf, 64*1024*params.b);
-            let _ = read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
-        }
-        else {
-            let reader = seq_io::fastq::Reader::with_capacity(buf, 64*1024*params.b);
-            let _ = read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
-        }
-    } else { // rust-parallelfastx is a more efficient fastx parser than seq_io when reading from disk is fast and file is uncompressed
-        // the only downside is that it will display a large RSS footprint as the reads will be
-        // loaded in memory (though, that memory isn't needed by hifimap, it will just use as much as possible)
-        println!("Warning: using experimental rust-parallelfastx (exciting!)");
-        let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
-        let task = |seq_str: &[u8], seq_id: &str|  {
-            let (_osef, match_opt) = query_process_read_aux_mer(seq_str, seq_id);
-            if let Some(l) = match_opt {
-                paf_mpsc_send.send(Some(l));
-            }
-        };
-        let writer = std::thread::spawn(move || {
-            while let Some(paf_line) = paf_mpsc_recv.recv().unwrap() {
-                write!(paf_file, "{}\n", paf_line).expect("Error writing line.");
-            }
-        });
-        parallel_fastx(&filename.to_string_lossy(), threads, task);
-        paf_mpsc_send.send(None); // signal we're done
-        writer.join().unwrap();
-    }
+	let (buf, are_reads_compressed) = get_reader(filename);
+	if are_reads_compressed || (!params.use_pfx) {  // fall-back to seq_io parallel
+		// spawn read processing threads
+		if fasta_reads {
+			let reader = seq_io::fasta::Reader::with_capacity(buf, 64*1024*params.b);
+			let _ = read_process_fasta_records(reader, threads as u32, queue_len, query_process_read_fasta_mer, |record, found| {main_thread_mer(found)});
+		}
+		else {
+			let reader = seq_io::fastq::Reader::with_capacity(buf, 64*1024*params.b);
+			let _ = read_process_fastq_records(reader, threads as u32, queue_len, query_process_read_fastq_mer, |record, found| {main_thread_mer(found)});
+		}
+	} else { // rust-parallelfastx is a more efficient fastx parser than seq_io when reading from disk is fast and file is uncompressed
+		// the only downside is that it will display a large RSS footprint as the reads will be
+		// loaded in memory (though, that memory isn't needed by hifimap, it will just use as much as possible)
+		println!("Warning: using experimental rust-parallelfastx (exciting!)");
+		let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
+		let task = |seq_str: &[u8], seq_id: &str|  {
+			let (_osef, match_opt) = query_process_read_aux_mer(seq_str, seq_id);
+			if let Some(l) = match_opt {
+				paf_mpsc_send.send(Some(l));
+			}
+		};
+		let writer = std::thread::spawn(move || {
+			while let Some(paf_line) = paf_mpsc_recv.recv().unwrap() {
+				write!(paf_file, "{}\n", paf_line).expect("Error writing line.");
+			}
+		});
+		parallel_fastx(&filename.to_string_lossy(), threads, task);
+		paf_mpsc_send.send(None); // signal we're done
+		writer.join().unwrap();
+	}
 
     let query_duration = query_start.elapsed();
     println!("Mapped query sequences in {:?}.", query_duration);
 
 
-
     // Done, start alignment (optional)
-    /*
     if params.a {
         let start = Instant::now();
-        let buf_aln = get_reader(&ref_filename);
+        let (buf_aln, _) = get_reader(&ref_filename);
 
         // Obtain reference sequences
 
         if ref_fasta_reads {
             let reader = seq_io::fasta::Reader::new(buf_aln);
-            read_process_fasta_records(reader, ref_threads as u32, 4, ref_process_read_fasta_aln, |record, found| {ref_main_thread_aln(found)});
+            let _ = read_process_fasta_records(reader, ref_threads as u32, 4, ref_process_read_fasta_aln, |record, found| {ref_main_thread_aln(found)});
         }
         else {
             let reader = seq_io::fastq::Reader::new(buf_aln);
-            read_process_fastq_records(reader, ref_threads as u32, 4, ref_process_read_fastq_aln, |record, found| {ref_main_thread_aln(found)});
+            let _ = read_process_fastq_records(reader, ref_threads as u32, 4, ref_process_read_fastq_aln, |record, found| {ref_main_thread_aln(found)});
         }
         let duration = start.elapsed();
         println!("Obtained references for alignment in {:?}.", duration);
@@ -235,16 +234,16 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         // Done, obtain query sequences and align
 
         let query_start = Instant::now();
-        let buf_aln = get_reader(&filename);
+        let (buf_aln, _) = get_reader(&filename);
         if fasta_reads {
             let reader = seq_io::fasta::Reader::new(buf_aln);
-            read_process_fasta_records(reader, threads as u32, threads, query_process_read_fasta_aln, |record, found| {main_thread_aln(found)});
+            let _ = read_process_fasta_records(reader, threads as u32, threads, query_process_read_fasta_aln, |record, found| {main_thread_aln(found)});
             let query_duration = query_start.elapsed();
             println!("Aligned query sequences in {:?}.", query_duration);
         }
         else {
             let reader = seq_io::fastq::Reader::new(buf_aln);
-            read_process_fastq_records(reader, threads as u32, threads, query_process_read_fastq_aln, |record, found| {main_thread_aln(found)});
+            let _ = read_process_fastq_records(reader, threads as u32, threads, query_process_read_fastq_aln, |record, found| {main_thread_aln(found)});
             let query_duration = query_start.elapsed();
             println!("Aligned query sequences in {:?}.", query_duration);
         }
@@ -253,6 +252,5 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
             println!("[warning] Alignment stats: {} successful, {} failed", global_align_stats.successful, global_align_stats.failed);
         }
     }
-    */
     //println!("current time before exiting closures {:?}",Utc::now());
 }
