@@ -230,8 +230,8 @@ pub fn wflambda(q: &[u8], t: &[u8]) -> (usize, String) {
 // Smith-Waterman alignment from rust-bio, mainly for debugging.
 
 pub fn sw(q: &[u8], r: &[u8]) -> (i32, String) {
-    let score = |a: u8, b: u8| if a == b { 1i32 } else { -1i32 };
-    let mut aligner = Aligner::with_capacity(q.len(), r.len(), -5, -1, &score);
+    let score = |a: u8, b: u8| if a == b { 2i32 } else { -4i32 };
+    let mut aligner = Aligner::with_capacity(q.len(), r.len(), -4, -2, &score);
     let alignment = aligner.semiglobal(q, r);
     return (alignment.score, alignment.cigar(false));
 }

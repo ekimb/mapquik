@@ -193,10 +193,6 @@ impl Chain {
         if !rc {
             let mut prev_q_end = q_start;
             let mut prev_r_end = r_start;
-            let rc_s = match rc {
-                true => "-",
-                false => "+",
-            };
             for i in 0..self.len() {
                 let m = self.nth(i);
                 let rc_s = match m.rc {
@@ -205,27 +201,30 @@ impl Chain {
                 };
                 //println!("fw QALN!{}!{}!RALN!{}!{}", prev_q_end, m.q_start, prev_r_end, m.r_start);
                 //println!("fw QMMM!{}!{}!RMMM!{}!{}", m.q_start, m.q_end, m.r_start, m.r_end); 
-                if prev_q_end < &m.q_start && &m.r_start > prev_r_end {
+                if *prev_q_end < m.q_start && *prev_r_end < m.r_start {
                     q_coords.push((*prev_q_end, m.q_start));
                     r_coords.push((*prev_r_end, m.r_start));
                     prev_q_end = &m.q_end;
                     prev_r_end = &m.r_end;
                 }
+
+                // temporary: also push the entire kminmer, until we have a better way to
+                // inner-align it
+                if m.q_start != *q_start {
+                    q_coords.push((m.q_start, m.q_end));
+                    r_coords.push((m.r_start, m.r_end));
+                }
             }
             //println!("fw QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, prev_r_end, r_end);
-            if prev_q_end != q_end {
+            if prev_q_end <= q_end && prev_r_end <= r_end { // huh for some reason prev_q_end can be q_end+1
                 q_coords.push((*prev_q_end, *q_end));
                 r_coords.push((*prev_r_end, *r_end));
             }
 
         }
         if *rc {
-            let mut prev_q_end = q_start;
+            let mut prev_q_end = q_start; // sus. confirm this line/naming
             let mut prev_r_start = r_end;
-            let rc_s = match rc {
-                true => "-",
-                false => "+",
-            };
             for i in 0..self.len() {
                 let m = self.nth(i);
                 let rc_s = match m.rc {
@@ -241,6 +240,14 @@ impl Chain {
                     prev_q_end = &m.q_end;
                     prev_r_start = &m.r_start;
                 }
+
+                // temporary: also push the entire kminmer, until we have a better way to
+                // inner-align it
+                if m.q_start != *q_start {
+                    q_coords.push((m.q_start, m.q_end));
+                    r_coords.push((m.r_start, m.r_end));
+                }
+
             }
             //println!("rc QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, r_start, prev_r_start);
             if prev_q_end <= q_end { // huh for some reason prev_q_end can be q_end+1
