@@ -1,11 +1,10 @@
 // closures.rs
 // Functions for FASTA parsing and invoking all necessary functions for mapping and alignment.
 
-use std::error::Error;
 use std::io::{Write, BufWriter};
 use std::fs::{File};
 use seq_io::BaseRecord;
-use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records, read_process_fastx_records};
+use seq_io::parallel::{read_process_fasta_records, read_process_fastq_records};
 use dashmap::DashMap;
 use crate::mers::{Offset, AlignCand};
 use crate::mers;
@@ -25,16 +24,17 @@ use std::borrow::Cow;
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &Path) {
 
     let mers_index = Index::new(); // Index of reference k-min-mer entries
-    let aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
+    let aln_coords : Arc<DashMap<usize, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
     let aln_coords_q : Arc<DashMap<String, Vec<Offset>>> =  Arc::new(DashMap::new()); // Index of intervals that need to be aligned per query
-    let aln_seqs_cow : Arc<DashMap<(String, Offset), Cow<[u8]>>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
+    let aln_seqs_cow : Arc<DashMap<(String, Offset), (Cow<[u8]>, bool, usize, usize)>> =  Arc::new(DashMap::new()); // Index of pointers to string slices that need to be aligned per reference
     let ref_i = AtomicUsize::new(0);
     let ref_map : DashMap<usize, (String, usize)> = DashMap::new(); // Sequence lengths per reference
+    let ref_map_inv : Arc<DashMap<String, usize>> = Arc::new(DashMap::new()); // Reference id's for names
 
     // PAF file generation
     let paf_filename = format!("{}{}", output_prefix.to_str().unwrap(), ".paf");
     let mut paf_file = match File::create(&paf_filename) {
-        Err(why) => panic!("Couldn't create {}: {}", paf_filename, why.description()),
+        Err(why) => panic!("Couldn't create {}: {}", paf_filename, why),
         Ok(paf_file) => BufWriter::new(paf_file),
     };
 
@@ -50,6 +50,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         let ref_idx = ref_i.fetch_add(1, Ordering::Relaxed);
         let nb_mers = mers::ref_extract(ref_idx, seq, params, &mers_index);
         ref_map.insert(ref_idx, (seq_id.to_string(), seq.len()));
+        ref_map_inv.insert(seq_id.to_string(), ref_idx);
         nb_mers
     };
 
@@ -57,7 +58,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     let ref_process_read_aux_mer = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
         let nb_mers = index_mers(ref_id, ref_str, params);
-        if params.a {aln_coords.insert(ref_id.to_string(), Vec::new());}
+        let ref_idx = *ref_map_inv.get(ref_id).unwrap();
+        if params.a {aln_coords.insert(ref_idx, Vec::new());}
         println!("Indexed reference {}: {} k-min-mers.", ref_id, nb_mers);
         Some(1)
     };
@@ -129,7 +131,8 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     // Closures for base-level alignment (obtaining reference sequence slices)
     let ref_process_read_aux_aln = |ref_str: &[u8], ref_id: &str| -> Option<u64> {
-        get_slices(ref_id, ref_str, &aln_coords, &aln_coords_q, &aln_seqs_cow);
+        let ref_idx = *ref_map_inv.get(ref_id).unwrap();
+        get_slices(ref_idx, ref_str, &aln_coords, &aln_coords_q, &aln_seqs_cow);
         return Some(1)
     };
     let ref_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
@@ -152,7 +155,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     //  Closures for base-level alignment (obtaining query sequence slices and alignment)
     
     let query_process_read_aux_aln = |seq_str: &[u8], seq_id: &str| -> Option<AlignStats> {
-        let align_stats = align_slices(seq_id, seq_str, &aln_coords_q, &aln_seqs_cow);
+        let align_stats = align_slices(seq_id, seq_str, &aln_coords_q, &aln_seqs_cow, &ref_map);
         return Some(align_stats)
     };
     let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<AlignStats>| {

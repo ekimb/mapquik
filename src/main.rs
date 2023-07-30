@@ -28,6 +28,7 @@ mod r#match;
 mod mers;
 mod stats;
 mod align;
+mod cigar;
 
 pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
 pub type PseudoChainCoordsTuple<'a> = (usize, PseudoChainCoords);

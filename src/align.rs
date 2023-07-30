@@ -8,6 +8,7 @@ use dashmap::DashMap;
 use bio::alphabets::dna;
 use std::borrow::Cow;
 use bio::alignment::pairwise::*;
+use crate::cigar;
 
 /*
 use rust_wfa2::aligner::*;
@@ -22,16 +23,15 @@ use libwfa::{affine_wavefront::*, bindings::*, mm_allocator::*, penalties::*};
 //         aln_coords_q (for the query); pointers to the string slices of the reference that need to be aligned,
 //         storing them in aln_seqs_cow. 
 // Usage: in closures.rs in the closure 'ref_process_read_aux_aln'.
-pub fn get_slices(ref_id: &str, ref_str: &[u8], aln_coords: &DashMap<String, Vec<AlignCand>>, aln_coords_q:&DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), Cow<[u8]>> ) {
-    let aln_coord_v = aln_coords.get(ref_id).unwrap();
+pub fn get_slices(ref_id: usize, ref_str: &[u8], aln_coords: &DashMap<usize, Vec<AlignCand>>, aln_coords_q:&DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), (Cow<[u8]>, bool, usize, usize)> ) {
+    let aln_coord_v = aln_coords.get(&ref_id).unwrap();
     for (r_tup, q_id, q_tup, rc) in aln_coord_v.iter() {
-        let mut s = ref_str[r_tup.0..r_tup.1].to_vec();
+        let s = ref_str[r_tup.0..r_tup.1].to_vec();
         aln_coords_q.get_mut(q_id).unwrap().push(*q_tup);
         if *rc {
-            aln_seqs_cow.insert((q_id.to_string(), *q_tup), Cow::from(dna::revcomp(&s)));
+            aln_seqs_cow.insert((q_id.to_string(), *q_tup), (Cow::from(dna::revcomp(&s)), true, ref_id, r_tup.0));
         }
-        else {aln_seqs_cow.insert((q_id.to_string(), *q_tup), Cow::from(s));}
-        //println!("{}\t{}", score, cigar);
+        else {aln_seqs_cow.insert((q_id.to_string(), *q_tup), (Cow::from(s), false, ref_id, r_tup.0));}
     }
 }
 
@@ -43,7 +43,7 @@ pub struct AlignStats {
 // Retrieve query locations and pointer to reference string, and run alignment on query and string slice (currently WFA from libwfa).
 // Output: an AlignStats struct which  contains the number of successful and failed alignments. 
 // Usage: in closures.rs in the closure 'query_process_read_aux_aln'.
-pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), Cow<[u8]>>) -> AlignStats {    
+pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), (Cow<[u8]>, bool, usize, usize)>, ref_map: &DashMap<usize, (String,usize)>) -> AlignStats {    
     let mode = 0; // rust-bio SW
     //let mode = 1; // wfa1
     //let mode = 2; // wfa2
@@ -87,12 +87,25 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
     let mut align_stats = AlignStats { successful: 0, failed: 0};
     
     let aln_coords_v = aln_coords_q.get(seq_id).unwrap();
+    let mut cigars = Vec::new();
+    let mut pos : Option<usize> = None;
+    let mut end_pos = 0;
+    let mut ref_idx : Option<usize> = None;
+    let mut rc : Option<bool> = None;
     for q_tup in aln_coords_v.iter() {
-        let mut r = aln_seqs_cow.get(&(seq_id.to_string(), *q_tup)).unwrap();
-        //println!("{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len());
+        let entry = aln_seqs_cow.get(&(seq_id.to_string(), *q_tup)).unwrap();
+        let r = &entry.0;
+        let _rc = entry.1;
+        let _ref_idx = entry.2;
+        let r_pos = entry.3;
         let q = &seq_str[q_tup.0..q_tup.1];
+        if pos.is_none() { pos = Some(r_pos+1); }
+        else { pos = Some(std::cmp::min(r_pos+1,pos.unwrap())); }
+        if ref_idx.is_none() { ref_idx = Some(_ref_idx); }
+        if rc.is_none() { rc = Some(_rc); }
+        end_pos = std::cmp::max(end_pos,r_pos+r.len());
         let (score, cigar) = match mode {
-            0 => sw(q, &r), 
+            0 => {align_stats.successful += 1; sw(q, &r)}, 
             1 => 
                 // change this when wfa1 is enabled
                 //libwfa(q, &r, wfa1_alloc.as_ref().unwrap(), &mut penalties, &mut align_stats)
@@ -105,9 +118,20 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
                 (0, String::new()),
             _ =>  (0, String::new())
         };
-        println!("{}!{}!{}!\t{}\t{}", seq_id, q_tup.0, q_tup.1, score, cigar);
+        //println!("{}\t{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len(), cigar);
+        cigars.push(cigar);
         // wflambda(q, &r);
     }
+    let rc = rc.unwrap();
+    let flag = if rc { 16 } else {0};
+    let mapq = 60;
+    let pos = pos.unwrap();
+    let tlen = end_pos-pos;
+    let ref_idx = ref_idx.unwrap();
+    let ref_id = &ref_map.get(&ref_idx).unwrap().0;
+    let cigar = cigar::merge_cigar_strings(cigars);
+    // SAM output
+    println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", seq_id, flag, ref_id, pos, mapq, cigar, "*", "*", tlen, "*", "*");
     align_stats
 }
 

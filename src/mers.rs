@@ -78,7 +78,7 @@ pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>
 
 
 // Extract raw Vecs of Matches, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
-pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params, aln_coords: &DashMap<String, Vec<AlignCand>>) -> Option<String> {
+pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params, aln_coords: &DashMap<usize, Vec<AlignCand>>) -> Option<String> {
     let mut kminmers = extract(q_id, q_str, params);
     let matches_per_ref = chain_matches(q_id, &mut kminmers, mers_index);
     let mut all_pseudocoords = Vec::<PseudoChainCoordsTuple>::new();    
@@ -98,18 +98,16 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
     let (paf_line, pc_idx) = res_chain.unwrap();
     if params.a {
         let r_idx = all_pseudocoords[pc_idx].0;
-        let rtup = ref_map.get(&r_idx).unwrap();
-        let r_id = &rtup.0;
         let matches_raw = &matches_per_ref[&r_idx];
         let mut c = Chain::new(&matches_raw);
         let t = c.get_match(params).unwrap();
         //println!("trying to align chain {:?}",t);
         let (q_coords, r_coords) = c.get_remaining_seqs(&t);
         for i in 0..q_coords.len() {
-            println!("q_coords {:?} r_coords {:?}",q_coords[i], r_coords[i]);
+            //println!("q_coords {:?} r_coords {:?}",q_coords[i], r_coords[i]);
             let q_coord_tup = q_coords[i];
             let r_coord_tup = r_coords[i];
-            aln_coords.get_mut(r_id).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0,
+            aln_coords.get_mut(&r_idx).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0,
                                                                                                        q_coord_tup.1), t.0));
         }
     }

@@ -36,6 +36,7 @@ chrono = "0.4.22"
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
 proc-macro2 = "1.0.60"
+regex = "1"
 
 [profile.dev]
 opt-level = 3
