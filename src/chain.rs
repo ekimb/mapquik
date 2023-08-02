@@ -176,7 +176,7 @@ impl Chain {
         let first = self.first();
         let last = self.last();
         let rc = first.rc;
-        return match rc && self.len() > 1 {
+        return match rc {
             true =>  Some((rc, first.q_start, last.q_end - 1, last.r_start, first.r_end - 1, score, mapq)),
             false => Some((rc, first.q_start, last.q_end - 1, first.r_start, last.r_end - 1, score, mapq)),
         };
@@ -184,77 +184,56 @@ impl Chain {
     
 
     // Obtains query and reference intervals that are not covered by a Match in the final Chain object (only for base-level alignment).
-    pub fn get_remaining_seqs(&self, m: &PseudoChainCoords) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
+    pub fn get_remaining_seqs(&self, m: &PseudoChainCoords, q_len :usize) -> (Vec<(usize, usize)>, Vec<(usize, usize)>) {
         let mut q_coords = Vec::<(usize, usize)>::new();
         let mut r_coords = Vec::<(usize, usize)>::new();
 
-        let (rc, q_start, q_end, r_start, r_end, score, mapq) = m;
+        let (rc, _q_start, _q_end, r_start, r_end, score, mapq) = m;
 
-        if !rc {
-            let mut prev_q_end = q_start;
-            let mut prev_r_end = r_start;
-            for i in 0..self.len() {
-                let m = self.nth(i);
-                let rc_s = match m.rc {
-                    true => "-",
-                    false => "+",
-                };
-                //println!("fw QALN!{}!{}!RALN!{}!{}", prev_q_end, m.q_start, prev_r_end, m.r_start);
-                //println!("fw QMMM!{}!{}!RMMM!{}!{}", m.q_start, m.q_end, m.r_start, m.r_end); 
-                if *prev_q_end < m.q_start && *prev_r_end < m.r_start {
-                    q_coords.push((*prev_q_end, m.q_start));
-                    r_coords.push((*prev_r_end, m.r_start));
-                    prev_q_end = &m.q_end;
-                    prev_r_end = &m.r_end;
+        //let q_start = if *rc { q_len - *_q_end } else { *_q_start } ;
+        //let q_end   = if *rc { q_len - *_q_start } else { *_q_end } ;
+        let q_start = *_q_start;
+        let q_end   = *_q_end;
+
+        let mut prev_q_end = if *rc { q_end } else { q_start } ;
+        let mut prev_r_end = *r_start;
+        for i in 0..self.len() {
+            let m = self.nth(if *rc { self.len()-1-i } else { i });
+            //let m = self.nth(i);
+            //let m_q_start = if *rc { q_len - m.q_end } else { m.q_start } ;
+            //let m_q_end   = if *rc { q_len - m.q_start } else { m.q_end } ;
+            let m_q_start = m.q_start;
+            let m_q_end   = m.q_end;
+
+            println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, m_q_start, prev_r_end, m.r_start);
+            println!("QMMM!{}!{}!RMMM!{}!{}", m_q_start, m_q_end, m.r_start, m.r_end); 
+
+            // for some reason, prev_r_end can sometimse be > m.r_start, although that's not
+            // supposed to happen
+            if prev_q_end == m_q_start || prev_r_end >= m.r_start { continue; }
+            if prev_q_end < m_q_start {
+                assert!(!*rc);
+                if prev_q_end < m_q_start { 
+                    q_coords.push((prev_q_end, m_q_start));
+                    prev_q_end = m_q_end;
+                }
+            } else {
+                assert!(*rc);
+                if m_q_end < prev_q_end { 
+                    q_coords.push((m_q_end, prev_q_end));
+                    prev_q_end = m_q_start;
                 }
 
-                // temporary: also push the entire kminmer, until we have a better way to
-                // inner-align it
-                if m.q_start != *q_start {
-                    q_coords.push((m.q_start, m.q_end));
-                    r_coords.push((m.r_start, m.r_end));
-                }
             }
-            //println!("fw QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, prev_r_end, r_end);
-            if prev_q_end <= q_end && prev_r_end <= r_end { // huh for some reason prev_q_end can be q_end+1
-                q_coords.push((*prev_q_end, *q_end));
-                r_coords.push((*prev_r_end, *r_end));
-            }
+            r_coords.push((prev_r_end, m.r_start));
+            prev_r_end = m.r_end;
 
+            // temporary: also push the entire kminmer, until we have a better way to
+            // inner-align it
+            q_coords.push((m_q_start, m_q_end));
+            r_coords.push((m.r_start, m.r_end));
         }
-        if *rc {
-            let mut prev_q_end = q_start; // sus. confirm this line/naming
-            let mut prev_r_start = r_end;
-            for i in 0..self.len() {
-                let m = self.nth(i);
-                let rc_s = match m.rc {
-                    true => "-",
-                    false => "+",
-                };
-                if m.r_end < *r_start {break;}
-                //println!("rc QALN!{}!{}!RALN!{}!{}", prev_q_end, m.q_start, m.r_end, prev_r_start);
-                //println!("rc QMMM!{}!{}!RMMM!{}!{}", m.q_start, m.q_end, m.r_start, m.r_end); 
-                if prev_q_end < &m.q_start && &m.r_end < prev_r_start {
-                    q_coords.push((*prev_q_end, m.q_start));
-                    r_coords.push((m.r_end, *prev_r_start));
-                    prev_q_end = &m.q_end;
-                    prev_r_start = &m.r_start;
-                }
-
-                // temporary: also push the entire kminmer, until we have a better way to
-                // inner-align it
-                if m.q_start != *q_start {
-                    q_coords.push((m.q_start, m.q_end));
-                    r_coords.push((m.r_start, m.r_end));
-                }
-
-            }
-            //println!("rc QALN!{}!{}!RALN!{}!{}", prev_q_end, q_end, r_start, prev_r_start);
-            if prev_q_end <= q_end { // huh for some reason prev_q_end can be q_end+1
-                q_coords.push((*prev_q_end, *q_end));
-                r_coords.push((*r_start, *prev_r_start));
-            }
-        }
+        
         (q_coords, r_coords)
     } 
 }

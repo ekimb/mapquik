@@ -28,8 +28,9 @@ dashmap = "5.4.0"
 thread-id = "3.3.0"
 #rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
 #libwfa = "0.1"
-rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
+#rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
 #rust-seq2kminmers = { path = "/pasteur/appa/homes/rchikhi/tools/rust-seq2kminmers" }
+rust-seq2kminmers = { path = "/home/rayan/rust-seq2kminmers" }
 rust-parallelfastx = { git = "https://github.com/rchikhi/rust-parallelfastx"  }
 fxhash = "0.2.1"
 chrono = "0.4.22"

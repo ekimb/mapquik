@@ -102,9 +102,9 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
         let mut c = Chain::new(&matches_raw);
         let t = c.get_match(params).unwrap();
         //println!("trying to align chain {:?}",t);
-        let (q_coords, r_coords) = c.get_remaining_seqs(&t);
+        let (mut q_coords, mut r_coords) = c.get_remaining_seqs(&t, q_len);
         for i in 0..q_coords.len() {
-            //println!("q_coords {:?} r_coords {:?}",q_coords[i], r_coords[i]);
+            println!("q_coords {:?} r_coords {:?}",q_coords[i], r_coords[i]);
             let q_coord_tup = q_coords[i];
             let r_coord_tup = r_coords[i];
             aln_coords.get_mut(&r_idx).unwrap().push(((r_coord_tup.0, r_coord_tup.1), q_id.to_string(), (q_coord_tup.0,

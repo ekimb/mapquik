@@ -28,10 +28,7 @@ pub fn get_slices(ref_id: usize, ref_str: &[u8], aln_coords: &DashMap<usize, Vec
     for (r_tup, q_id, q_tup, rc) in aln_coord_v.iter() {
         let s = ref_str[r_tup.0..r_tup.1].to_vec();
         aln_coords_q.get_mut(q_id).unwrap().push(*q_tup);
-        if *rc {
-            aln_seqs_cow.insert((q_id.to_string(), *q_tup), (Cow::from(dna::revcomp(&s)), true, ref_id, r_tup.0));
-        }
-        else {aln_seqs_cow.insert((q_id.to_string(), *q_tup), (Cow::from(s), false, ref_id, r_tup.0));}
+        aln_seqs_cow.insert((q_id.to_string(), *q_tup), (Cow::from(s), *rc, ref_id, r_tup.0));
     }
 }
 
@@ -92,17 +89,21 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
     let mut end_pos = 0;
     let mut ref_idx : Option<usize> = None;
     let mut rc : Option<bool> = None;
+    let seq_str_rev =  dna::revcomp(seq_str); 
+    let seq_len =  seq_str.len(); 
     for q_tup in aln_coords_v.iter() {
         let entry = aln_seqs_cow.get(&(seq_id.to_string(), *q_tup)).unwrap();
         let r = &entry.0;
         let _rc = entry.1;
+        if rc.is_none() {
+            rc = Some(_rc); 
+        }
         let _ref_idx = entry.2;
         let r_pos = entry.3;
-        let q = &seq_str[q_tup.0..q_tup.1];
+        let q :&[u8] = if _rc { &seq_str_rev[(seq_len-1-q_tup.1)..(seq_len-1-q_tup.0)] } else { &seq_str[q_tup.0..q_tup.1] } ;
         if pos.is_none() { pos = Some(r_pos+1); }
         else { pos = Some(std::cmp::min(r_pos+1,pos.unwrap())); }
         if ref_idx.is_none() { ref_idx = Some(_ref_idx); }
-        if rc.is_none() { rc = Some(_rc); }
         end_pos = std::cmp::max(end_pos,r_pos+r.len());
         let (score, cigar) = match mode {
             0 => {align_stats.successful += 1; sw(q, &r)}, 
@@ -118,7 +119,7 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
                 (0, String::new()),
             _ =>  (0, String::new())
         };
-        //println!("{}\t{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len(), cigar);
+        println!("{}\t{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len(), cigar);
         cigars.push(cigar);
         // wflambda(q, &r);
     }
