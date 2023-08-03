@@ -9,6 +9,9 @@ use bio::alphabets::dna;
 use std::borrow::Cow;
 use bio::alignment::pairwise::*;
 use crate::cigar;
+use block_aligner::scan_block::*;
+use block_aligner::scores::*;
+use block_aligner::cigar::Cigar;
 
 /*
 use rust_wfa2::aligner::*;
@@ -40,10 +43,11 @@ pub struct AlignStats {
 // Retrieve query locations and pointer to reference string, and run alignment on query and string slice (currently WFA from libwfa).
 // Output: an AlignStats struct which  contains the number of successful and failed alignments. 
 // Usage: in closures.rs in the closure 'query_process_read_aux_aln'.
-pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), (Cow<[u8]>, bool, usize, usize)>, ref_map: &DashMap<usize, (String,usize)>) -> AlignStats {    
-    let mode = 0; // rust-bio SW
+pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), (Cow<[u8]>, bool, usize, usize)>, ref_map: &DashMap<usize, (String,usize)>) -> (Option<String>, Option<AlignStats>) {
+    //let mode = 0; // rust-bio SW
     //let mode = 1; // wfa1
     //let mode = 2; // wfa2
+    let mode = 3; // block-aligner 
     
     // 1) Failed attempt to use Options to enable either WFA1 or WFA2. Didnt work, due to even having
     // both codes at the same time crash wfa1.
@@ -117,9 +121,10 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
                 //wfa2(q, &r, &mut wfa2_aligner.as_mut().unwrap(), &mut align_stats)
                 //wfa2(q, &r, &mut wfa2_aligner, &mut align_stats)
                 (0, String::new()),
+            3 => { align_stats.successful += 1; block_aligner(q,&r) }
             _ =>  (0, String::new())
         };
-        println!("{}\t{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len(), cigar);
+        //println!("{}\t{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len(), cigar);
         cigars.push(cigar);
         // wflambda(q, &r);
     }
@@ -132,8 +137,8 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
     let ref_id = &ref_map.get(&ref_idx).unwrap().0;
     let cigar = cigar::merge_cigar_strings(cigars);
     // SAM output
-    println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", seq_id, flag, ref_id, pos, mapq, cigar, "*", "*", tlen, "*", "*");
-    align_stats
+    let sam_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", seq_id, flag, ref_id, pos, mapq, cigar, "*", "*", tlen, "*", "*");
+    (Some(sam_line), Some(align_stats))
 }
 
 // WFA implementation from https://github.com/chfi/rs-wfa
@@ -261,8 +266,21 @@ pub fn sw(q: &[u8], r: &[u8]) -> (i32, String) {
     return (alignment.score, alignment.cigar(false));
 }
 
-
-
+// block_aligner
+pub fn block_aligner(q: &[u8], r: &[u8]) -> (i32, String) {
+    let block_size = 32;
+    let run_gaps = Gaps { open: -4, extend: -2 };
+    let r_padded = PaddedBytes::from_bytes::<NucMatrix>(r, block_size);
+    let q_padded = PaddedBytes::from_bytes::<NucMatrix>(q, block_size);
+    let mut block_aligner = Block::<true, false>::new(q.len(), r.len(), block_size);
+    block_aligner.align(&q_padded, &r_padded, &NW1, run_gaps, block_size..=block_size, 0);
+    let res = block_aligner.res();
+    let block_score = res.score as u32;
+    let mut cigar = Cigar::new(res.query_idx, res.reference_idx);
+    // Compute traceback and resolve =/X (matches/mismatches).
+    block_aligner.trace().cigar_eq(&q_padded, &r_padded, res.query_idx, res.reference_idx, &mut cigar);
+    (block_score as i32, cigar.to_string())
+}
 
 
 

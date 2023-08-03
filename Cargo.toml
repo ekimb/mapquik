@@ -8,7 +8,6 @@ default-run = "mapquik"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bio = "*"
 fasthash = "0.4.0"
 #generic-array = "0.13.2" #activate if using kmer_array
 #typenum = "1.11.2"
@@ -19,15 +18,12 @@ libc = "0.2.77"
 bio-types = "0.7.0" # for my reimplementation of needleman-wunsch, bio_types is called by bio too
 #seq_io= { path = "./seq_io" }
 seq_io= { git = "https://github.com/markschl/seq_io" }
-#wfa = { git = "https://github.com/ekimb/wfa" }
 #seq_io = "0.3.1"
 lzzzz = "0.7"
 xx-bloomfilter = "0.10.0"
 flate2 = "1.0.6"
 dashmap = "5.4.0"
 thread-id = "3.3.0"
-#rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
-#libwfa = "0.1"
 rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
 #rust-seq2kminmers = { path = "/pasteur/appa/homes/rchikhi/tools/rust-seq2kminmers" }
 #rust-seq2kminmers = { path = "/home/rayan/rust-seq2kminmers" }
@@ -38,6 +34,12 @@ chrono = "0.4.22"
 tikv-jemallocator = "0.5"
 proc-macro2 = "1.0.60"
 regex = "1"
+
+bio = "*"
+#wfa = { git = "https://github.com/ekimb/wfa" }
+#rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
+#libwfa = "0.1"
+block-aligner = { git = "https://github.com/Daniel-Liu-c0deb0t/block-aligner/", features = ["simd_avx2"] }
 
 [profile.dev]
 opt-level = 3

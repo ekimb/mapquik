@@ -38,6 +38,14 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         Ok(paf_file) => BufWriter::new(paf_file),
     };
 
+    // SAM file generation
+    let sam_filename = format!("{}{}", output_prefix.to_str().unwrap(), ".sam");
+    let mut sam_file = if params.a { match File::create(&sam_filename) {
+        Err(why) => panic!("Couldn't create {}: {}", sam_filename, why),
+        Ok(sam_file) => Some(BufWriter::new(sam_file)),
+    } } else { None };
+
+
     // Unmapped read file generation
     /*let unmap_path = format!("{}{}", output_prefix.to_str().unwrap(), ".unmapped.out");
     let unmap_file = match File::create(&unmap_path) {
@@ -154,23 +162,27 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 
     //  Closures for base-level alignment (obtaining query sequence slices and alignment)
     
-    let query_process_read_aux_aln = |seq_str: &[u8], seq_id: &str| -> Option<AlignStats> {
-        let align_stats = align_slices(seq_id, seq_str, &aln_coords_q, &aln_seqs_cow, &ref_map);
-        return Some(align_stats)
+    let query_process_read_aux_aln = |seq_str: &[u8], seq_id: &str| -> (Option<String>, Option<AlignStats>) {
+        let res = align_slices(seq_id, seq_str, &aln_coords_q, &aln_seqs_cow, &ref_map);
+        return res
     };
-    let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<AlignStats>| {
+    let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut (Option<String>, Option<AlignStats>)| {
         let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_aln(&seq_str, &seq_id);
     
     };
-    let query_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<AlignStats>| {
+    let query_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut (Option<String>, Option<AlignStats>)| {
         let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap().to_string();
         *found = query_process_read_aux_aln(&seq_str, &seq_id);
     };
     let mut global_align_stats = AlignStats{ successful: 0, failed: 0 };
-    let mut main_thread_aln = |align_stats: &mut Option<AlignStats>| { // runs in main thread
+    let mut main_thread_aln = |res: &mut (Option<String>, Option<AlignStats>)| { // runs in main thread
+        let (sam_line, align_stats) = res;
+        if let Some(l) = sam_line {
+            write!(sam_file.as_mut().unwrap(), "{}\n", l).expect("Error writing line.");
+        }
         global_align_stats.successful += align_stats.as_ref().unwrap().successful;
         global_align_stats.failed     += align_stats.as_ref().unwrap().failed;
         None::<()>
