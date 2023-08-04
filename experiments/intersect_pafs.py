@@ -13,6 +13,8 @@ def parse_paf(filename):
     for line in open(filename):
         #S1_1!chr1!224752794!224777027!+ 24299   0       24298   +       chr1    248387328       224752793       224777027       132     248387328       60
         ls = line.split()
+        mapq = int(ls[11])
+        if mapq != 60: continue
         read = ls[0]
         chrm = ls[5]
         start = int(ls[6])

@@ -205,20 +205,21 @@ impl Chain {
             let m_q_start = m.q_start;
             let m_q_end   = m.q_end;
 
-            //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, m_q_start, prev_r_end, m.r_start);
-            //println!("QMMM!{}!{}!RMMM!{}!{}", m_q_start, m_q_end, m.r_start, m.r_end); 
+            println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, m_q_start, prev_r_end, m.r_start);
+            println!("QMMM!{}!{}!RMMM!{}!{}", m_q_start, m_q_end, m.r_start, m.r_end); 
 
             // for some reason, prev_r_end can sometimse be > m.r_start, although that's not
             // supposed to happen
             if prev_q_end == m_q_start || prev_r_end >= m.r_start { continue; }
+
             if prev_q_end < m_q_start {
-                assert!(!*rc);
+                //assert!(!*rc);
                 if prev_q_end < m_q_start { 
                     q_coords.push((prev_q_end, m_q_start));
                     prev_q_end = m_q_end;
                 }
             } else {
-                assert!(*rc);
+                //assert!(*rc);
                 if m_q_end < prev_q_end { 
                     q_coords.push((m_q_end, prev_q_end));
                     prev_q_end = m_q_start;

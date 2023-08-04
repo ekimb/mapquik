@@ -128,17 +128,20 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
         cigars.push(cigar);
         // wflambda(q, &r);
     }
-    let rc = rc.unwrap();
-    let flag = if rc { 16 } else {0};
-    let mapq = 60;
-    let pos = pos.unwrap();
-    let tlen = end_pos-pos;
-    let ref_idx = ref_idx.unwrap();
-    let ref_id = &ref_map.get(&ref_idx).unwrap().0;
-    let cigar = cigar::merge_cigar_strings(cigars);
-    // SAM output
-    let sam_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", seq_id, flag, ref_id, pos, mapq, cigar, "*", "*", tlen, "*", "*");
-    (Some(sam_line), Some(align_stats))
+    let mut sam_line : Option<String> = None;
+    if cigars.len() > 0 {
+        let rc = rc.unwrap();
+        let flag = if rc { 16 } else {0};
+        let mapq = 60;
+        let pos = pos.unwrap();
+        let tlen = end_pos-pos;
+        let ref_idx = ref_idx.unwrap();
+        let ref_id = &ref_map.get(&ref_idx).unwrap().0;
+        let cigar = cigar::merge_cigar_strings(cigars);
+        // SAM output
+        let sam_line = Some(format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", seq_id, flag, ref_id, pos, mapq, cigar, "*", "*", tlen, "*", "*"));
+    }
+    (sam_line, Some(align_stats))
 }
 
 // WFA implementation from https://github.com/chfi/rs-wfa
@@ -268,7 +271,7 @@ pub fn sw(q: &[u8], r: &[u8]) -> (i32, String) {
 
 // block_aligner
 pub fn block_aligner(q: &[u8], r: &[u8]) -> (i32, String) {
-    let block_size = 32;
+    let block_size = 16;
     let run_gaps = Gaps { open: -4, extend: -2 };
     let r_padded = PaddedBytes::from_bytes::<NucMatrix>(r, block_size);
     let q_padded = PaddedBytes::from_bytes::<NucMatrix>(q, block_size);
@@ -280,6 +283,7 @@ pub fn block_aligner(q: &[u8], r: &[u8]) -> (i32, String) {
     // Compute traceback and resolve =/X (matches/mismatches).
     block_aligner.trace().cigar_eq(&q_padded, &r_padded, res.query_idx, res.reference_idx, &mut cigar);
     (block_score as i32, cigar.to_string())
+    //(0,String::new())
 }
 
 

@@ -189,7 +189,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
 
 
-	// Starts mapping
+    // Starts mapping
 
     let query_start = Instant::now();
 	let (buf, are_reads_compressed) = get_reader(filename);
