@@ -205,8 +205,8 @@ impl Chain {
             let m_q_start = m.q_start;
             let m_q_end   = m.q_end;
 
-            println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, m_q_start, prev_r_end, m.r_start);
-            println!("QMMM!{}!{}!RMMM!{}!{}", m_q_start, m_q_end, m.r_start, m.r_end); 
+            //println!("QALN!{}!{}!RALN!{}!{}", prev_q_end, m_q_start, prev_r_end, m.r_start);
+            //println!("QMMM!{}!{}!RMMM!{}!{}", m_q_start, m_q_end, m.r_start, m.r_end); 
 
             // for some reason, prev_r_end can sometimse be > m.r_start, although that's not
             // supposed to happen

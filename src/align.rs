@@ -139,7 +139,7 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
         let ref_id = &ref_map.get(&ref_idx).unwrap().0;
         let cigar = cigar::merge_cigar_strings(cigars);
         // SAM output
-        let sam_line = Some(format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", seq_id, flag, ref_id, pos, mapq, cigar, "*", "*", tlen, "*", "*"));
+        sam_line = Some(format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", seq_id, flag, ref_id, pos, mapq, cigar, "*", "*", tlen, "*", "*"));
     }
     (sam_line, Some(align_stats))
 }
