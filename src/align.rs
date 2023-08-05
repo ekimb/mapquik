@@ -85,6 +85,10 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
     //wfa2_aligner.set_heuristic(Heuristic::None);
     //wfa2_aligner.set_heuristic(Heuristic::BandedAdaptive(-10, 10, 1));
     
+    // prep for block_aligner
+    let mut r_padded = PaddedBytes::new::<NucMatrix>(50000, 16);
+    let mut q_padded = PaddedBytes::new::<NucMatrix>(50000, 16);
+    
     let mut align_stats = AlignStats { successful: 0, failed: 0};
     
     let aln_coords_v = aln_coords_q.get(seq_id).unwrap();
@@ -121,7 +125,7 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
                 //wfa2(q, &r, &mut wfa2_aligner.as_mut().unwrap(), &mut align_stats)
                 //wfa2(q, &r, &mut wfa2_aligner, &mut align_stats)
                 (0, String::new()),
-            3 => { align_stats.successful += 1; block_aligner(q,&r) }
+            3 => { align_stats.successful += 1; block_aligner(q,&r,&mut q_padded, &mut r_padded) }
             _ =>  (0, String::new())
         };
         //println!("{}\t{}\t{}\t{}\t{}\t{}", seq_id, q_tup.0, q_tup.1, r.len(), seq_str.len(), cigar);
@@ -270,12 +274,12 @@ pub fn sw(q: &[u8], r: &[u8]) -> (i32, String) {
 }
 
 // block_aligner
-pub fn block_aligner(q: &[u8], r: &[u8]) -> (i32, String) {
+pub fn block_aligner(q: &[u8], r: &[u8], q_padded :&mut PaddedBytes, r_padded: &mut PaddedBytes) -> (i32, String) {
     let block_size = 16;
     let run_gaps = Gaps { open: -4, extend: -2 };
-    let r_padded = PaddedBytes::from_bytes::<NucMatrix>(r, block_size);
-    let q_padded = PaddedBytes::from_bytes::<NucMatrix>(q, block_size);
     let mut block_aligner = Block::<true, false>::new(q.len(), r.len(), block_size);
+    q_padded.set_bytes::<NucMatrix>(q, block_size);
+    r_padded.set_bytes::<NucMatrix>(r, block_size);
     block_aligner.align(&q_padded, &r_padded, &NW1, run_gaps, block_size..=block_size, 0);
     let res = block_aligner.res();
     let block_score = res.score as u32;
