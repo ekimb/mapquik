@@ -5,16 +5,16 @@
 
 use crate::mers::{AlignCand, Offset};
 use dashmap::DashMap;
-use bio::alphabets::dna;
 use std::borrow::Cow;
-use bio::alignment::pairwise::*;
+use bio::alphabets::dna;
+//use bio::alignment::pairwise::*;
 use crate::cigar;
 use block_aligner::scan_block::*;
 use block_aligner::scores::*;
 use block_aligner::cigar::Cigar;
+use rust_wfa2::aligner::*;
 
 /*
-use rust_wfa2::aligner::*;
 use wfa::wflambda::wf_align as wflambda_align;
 use wfa::wfa::wf_align;
 use libwfa::{affine_wavefront::*, bindings::*, mm_allocator::*, penalties::*};
@@ -46,8 +46,8 @@ pub struct AlignStats {
 pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String, Vec<Offset>>, aln_seqs_cow: &DashMap<(String, (usize, usize)), (Cow<[u8]>, bool, usize, usize)>, ref_map: &DashMap<usize, (String,usize)>) -> (Option<String>, Option<AlignStats>) {
     //let mode = 0; // rust-bio SW
     //let mode = 1; // wfa1
-    //let mode = 2; // wfa2
-    let mode = 3; // block-aligner 
+    let mode = 2; // wfa2
+    //let mode = 3; // block-aligner 
     
     // 1) Failed attempt to use Options to enable either WFA1 or WFA2. Didnt work, due to even having
     // both codes at the same time crash wfa1.
@@ -81,9 +81,9 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
     };*/
 
     // wfa2
-    //let mut wfa2_aligner = WFAlignerGapAffine::new(4, 6, 2, AlignmentScope::Alignment, MemoryModel::MemoryHigh); // just *uncommenting* this line, which supposedly does not much, is enough to crash wfa1 (try it!)
+    let mut wfa2_aligner = WFAlignerGapAffine::new(4, 6, 2, AlignmentScope::Alignment, MemoryModel::MemoryLow); // just *uncommenting* this line, which supposedly does not much, is enough to crash wfa1 if it's also imported (try it!)
     //wfa2_aligner.set_heuristic(Heuristic::None);
-    //wfa2_aligner.set_heuristic(Heuristic::BandedAdaptive(-10, 10, 1));
+    wfa2_aligner.set_heuristic(Heuristic::BandedAdaptive(-10, 10, 1));
     
     // prep for block_aligner
     let mut r_padded = PaddedBytes::new::<NucMatrix>(50000, 16);
@@ -114,7 +114,11 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
         if ref_idx.is_none() { ref_idx = Some(_ref_idx); }
         end_pos = std::cmp::max(end_pos,r_pos+r.len());
         let (score, cigar) = match mode {
-            0 => {align_stats.successful += 1; sw(q, &r)}, 
+            0 => {
+                align_stats.successful += 1; 
+                //sw(q, &r)
+                (0, String::new())
+            }, 
             1 => 
                 // change this when wfa1 is enabled
                 //libwfa(q, &r, wfa1_alloc.as_ref().unwrap(), &mut penalties, &mut align_stats)
@@ -123,8 +127,8 @@ pub fn align_slices(seq_id: &str, seq_str: &[u8], aln_coords_q: &DashMap<String,
             2 => 
                 // change this when wfa2 is enabled
                 //wfa2(q, &r, &mut wfa2_aligner.as_mut().unwrap(), &mut align_stats)
-                //wfa2(q, &r, &mut wfa2_aligner, &mut align_stats)
-                (0, String::new()),
+                wfa2(q, &r, &mut wfa2_aligner, &mut align_stats),
+                //(0, String::new()),
             3 => { align_stats.successful += 1; block_aligner(q,&r,&mut q_padded, &mut r_padded) }
             _ =>  (0, String::new())
         };
@@ -188,9 +192,30 @@ pub fn libwfa(q_str: &[u8], ref_str: &[u8], alloc: &MMAllocator, penalties: &mut
     //let cg_str = String::new();
     (score, cg_str.to_string())
 }
+*/
+
+fn compress_cigar(cigar: &str) -> String {
+    let mut compressed = String::new();
+    let mut count = 1;
+    let mut chars = cigar.chars().peekable();
+
+    while let Some(current) = chars.next() {
+        if chars.peek() == Some(&current) {
+            count += 1;
+        } else {
+            if count > 1 {
+                compressed.push_str(&count.to_string());
+            }
+            compressed.push(current);
+            count = 1;
+        }
+    }
+
+    compressed
+}
 
 // WFA2 from https://github.com/tanghaibao/rust-wfa2/
-pub fn wfa2(q_str: &[u8], ref_str: &[u8], wfa2_aligner: &mut WFAligner, align_stats : &mut AlignStats) -> (isize, String) {
+pub fn wfa2(q_str: &[u8], ref_str: &[u8], wfa2_aligner: &mut WFAligner, align_stats : &mut AlignStats) -> (i32, String) {
 
     let status = wfa2_aligner.align_end_to_end(q_str,ref_str);
     match status
@@ -200,13 +225,15 @@ pub fn wfa2(q_str: &[u8], ref_str: &[u8], wfa2_aligner: &mut WFAligner, align_st
     }
     //println!("status: {}",status as i32);
 
-    let score = wfa2_aligner.score();
-    //let cigar = aligner.cigar();
-    let cigar = String::new();
-    (score as isize, cigar)
+    let score = wfa2_aligner.score() as i32;
+    let cigar = wfa2_aligner.cigar();
+    let cigar = compress_cigar(&cigar);
+    //println!("score: {} cigar: {}",score, cigar);
+    //let cigar = String::new();
+    (score, cigar)
 }
 
-
+/*
 
 // TEST_CONFIG type necessary for @urbanslug's Rust WFA/wflambda implementation.
 pub static TEST_CONFIG: wfa::types::Config = wfa::types::Config {
@@ -266,12 +293,14 @@ pub fn wflambda(q: &[u8], t: &[u8]) -> (usize, String) {
 
 // Smith-Waterman alignment from rust-bio, mainly for debugging.
 
+/*
 pub fn sw(q: &[u8], r: &[u8]) -> (i32, String) {
     let score = |a: u8, b: u8| if a == b { 2i32 } else { -4i32 };
     let mut aligner = Aligner::with_capacity(q.len(), r.len(), -4, -2, &score);
     let alignment = aligner.semiglobal(q, r);
     return (alignment.score, alignment.cigar(false));
 }
+*/
 
 // block_aligner
 pub fn block_aligner(q: &[u8], r: &[u8], q_padded :&mut PaddedBytes, r_padded: &mut PaddedBytes) -> (i32, String) {

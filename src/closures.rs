@@ -15,7 +15,7 @@ use std::time::Instant;
 use crate::index::{Index, ReadOnlyIndex};
 use crate::align::{get_slices, align_slices, AlignStats};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use rust_parallelfastx::parallel_fastx;
+//use rust_parallelfastx::parallel_fastx;
 use std::sync::mpsc;
 use std::sync::Arc;
 use std::borrow::Cow;
@@ -206,7 +206,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 	} else { // rust-parallelfastx is a more efficient fastx parser than seq_io when reading from disk is fast and file is uncompressed
 		// the only downside is that it will display a large RSS footprint as the reads will be
 		// loaded in memory (though, that memory isn't needed by hifimap, it will just use as much as possible)
-		println!("Warning: using experimental rust-parallelfastx (exciting!)");
+		/*println!("Warning: using experimental rust-parallelfastx (exciting!)");
 		let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
 		let task = |seq_str: &[u8], seq_id: &str|  {
 			let (_osef, match_opt) = query_process_read_aux_mer(seq_str, seq_id);
@@ -222,6 +222,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
 		parallel_fastx(&filename.to_string_lossy(), threads, task);
 		paf_mpsc_send.send(None); // signal we're done
 		writer.join().unwrap();
+        */
 	}
 
     let query_duration = query_start.elapsed();
