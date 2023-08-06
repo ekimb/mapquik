@@ -38,7 +38,7 @@ bio = "*" #for sw and revcomp
 
 #bio-types = "0.7.0" # for my reimplementation of needleman-wunsch, bio_types is called by bio too
 #wfa = { git = "https://github.com/ekimb/wfa" }
-rust-wfa2 = { git = "https://github.com/pairwise-alignment/rust-wfa2" }
+rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2" }
 #libwfa = "0.1"
 block-aligner = { git = "https://github.com/Daniel-Liu-c0deb0t/block-aligner/", features = ["simd_avx2"] }
 
