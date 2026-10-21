@@ -1,4 +1,4 @@
-// mapquik v0.1.1
+// mapquik v0.2.0
 // Copyright 2020-2021 Baris Ekim, Rayan Chikhi.
 // Licensed under the MIT license (http://opensource.org/licenses/MIT).
 // This file may not be copied, modified, or distributed except according to those terms.
