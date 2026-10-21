@@ -1,10 +1,9 @@
 // report.rs
-// Builds the JSON coverage report (the data that `mapquik_wrapper.py` used to
-// derive from the PAF), directly from the mapping results.
+// Builds the JSON coverage report (`--json`) directly from the mapping results.
 //
-// The report is a strict superset of the wrapper's schema: the top-level keys
-// `analysis_type`, `input_metrics` and `contig_coverage` (and their keys) are
-// unchanged, extra fields are added on top.
+// Schema stability: the keys of schema version 1 (`analysis_type`,
+// `input_metrics`, `contig_coverage` and their keys) must stay unchanged;
+// new fields may only be added.
 //
 // Everything here is pure data handling (no mapping logic) so it can be unit
 // tested without running the mapper.
@@ -354,6 +353,7 @@ impl CoverageAccumulator {
 /// Parameters recorded in the report, using the command line option names.
 #[derive(Debug, Clone)]
 pub struct Parameters {
+    pub preset: String,
     pub k: usize,
     pub l: usize,
     pub density: f64,
@@ -373,6 +373,7 @@ pub struct Parameters {
 impl Parameters {
     fn to_json(&self) -> Value {
         json!({
+            "preset": self.preset,
             "k": self.k,
             "l": self.l,
             "density": self.density,
@@ -439,6 +440,7 @@ mod tests {
             reads: "reads.fa".to_string(),
             reference: "ref.fa".to_string(),
             parameters: Parameters {
+                preset: "hifi".to_string(),
                 k: 8,
                 l: 16,
                 density: 0.01,
@@ -544,6 +546,7 @@ mod tests {
         assert_eq!(report["schema_version"], 2);
         assert_eq!(report["mapquik"]["version"], "0.0.0");
         assert_eq!(report["mapquik"]["parameters"]["k"], 8);
+        assert_eq!(report["mapquik"]["parameters"]["preset"], "hifi");
 
         let metrics = &report["input_metrics"];
         assert_eq!(metrics["input_reads_total"], 3);

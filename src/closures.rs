@@ -275,6 +275,7 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
             reads: filename.display().to_string(),
             reference: ref_filename.display().to_string(),
             parameters: report::Parameters {
+                preset: params.preset.to_string(),
                 k: params.k,
                 l: params.l,
                 density: params.density,
