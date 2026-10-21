@@ -1,6 +1,7 @@
 // closures.rs
 // Functions for FASTA parsing and invoking all necessary functions for mapping and alignment.
 
+use std::borrow::Cow;
 use std::error::Error;
 use std::io::{Write, BufWriter};
 use std::fs::{File};
@@ -17,6 +18,23 @@ use crate::index::{Index, ReadOnlyIndex};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use rust_parallelfastx::parallel_fastx;
 use std::sync::mpsc;
+
+/// Returns `seq` with all line breaks (`\n`, `\r`) removed and ASCII bases uppercased.
+///
+/// `seq_io`'s `BaseRecord::seq()` returns the raw record bytes for FASTA records, i.e.
+/// including embedded line breaks when the record spans multiple lines (and
+/// `rust-parallelfastx` does the same), so sequences coming from those paths must be
+/// normalised before k-min-mer extraction / matching. No allocation happens when the
+/// input is already clean and uppercase.
+pub fn normalize_seq(seq: &[u8]) -> Cow<[u8]> {
+    if !seq.iter().any(|&b| b == b'\n' || b == b'\r' || b.is_ascii_lowercase()) {
+        return Cow::Borrowed(seq);
+    }
+    let mut out = Vec::with_capacity(seq.len());
+    out.extend(seq.iter().copied().filter(|&b| b != b'\n' && b != b'\r'));
+    out.make_ascii_uppercase();
+    Cow::Owned(out)
+}
 
 // Main function for all FASTA parsing + mapping / alignment functions.
 pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &Path) {
@@ -60,9 +78,10 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     };
 
     let ref_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq().to_ascii_uppercase(); 
+        let full_seq = record.full_seq(); // seq() is not joined for multi-line FASTA, full_seq() is
+        let ref_str = normalize_seq(&full_seq);
         let ref_id = record.id().unwrap();
-        *found = ref_process_read_aux_mer(&ref_str, ref_id);
+        *found = ref_process_read_aux_mer(ref_str.as_ref(), ref_id);
 
     };
     let ref_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
@@ -103,9 +122,10 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         (seq_id.to_string(), match_opt)
     };
     let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
-        let seq_str = record.seq().to_ascii_uppercase(); 
+        let full_seq = record.full_seq(); // seq() is not joined for multi-line FASTA, full_seq() is
+        let seq_str = normalize_seq(&full_seq);
         let seq_id = record.id().unwrap();
-        *found = query_process_read_aux_mer(&seq_str, seq_id);
+        *found = query_process_read_aux_mer(seq_str.as_ref(), seq_id);
 
     };
     let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, Option<String>)| {
@@ -131,9 +151,9 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         return Some(1)
     };
     let ref_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<u64>| {
-        let ref_str = record.seq(); 
+        let ref_str = record.full_seq(); // multi-line FASTA safe
         let ref_id = record.id().unwrap().to_string();
-        *found = ref_process_read_aux_aln(&ref_str, &ref_id);
+        *found = ref_process_read_aux_aln(ref_str.as_ref(), &ref_id);
     };
     let ref_process_read_fastq_aln = |record: seq_io::fastq::RefRecord, found: &mut Option<u64>| {
         let ref_str = record.seq(); 
@@ -154,9 +174,9 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         return Some(align_stats)
     };
     let query_process_read_fasta_aln = |record: seq_io::fasta::RefRecord, found: &mut Option<AlignStats>| {
-        let seq_str = record.seq(); 
+        let seq_str = record.full_seq(); // multi-line FASTA safe
         let seq_id = record.id().unwrap().to_string();
-        *found = query_process_read_aux_aln(&seq_str, &seq_id);
+        *found = query_process_read_aux_aln(seq_str.as_ref(), &seq_id);
         //if params.a {eprintln!("{}", seq_id);}
     
     };
@@ -192,7 +212,10 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         println!("Warning: using experimental rust-parallelfastx (exciting!)");
         let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
         let task = |seq_str: &[u8], seq_id: &str|  {
-            let (_osef, match_opt) = query_process_read_aux_mer(seq_str, seq_id);
+            // rust-parallelfastx passes the raw record bytes, which still contain line
+            // breaks for multi-line records, so normalise before mapping.
+            let seq_str = normalize_seq(seq_str);
+            let (_osef, match_opt) = query_process_read_aux_mer(seq_str.as_ref(), seq_id);
             if let Some(l) = match_opt {
                 paf_mpsc_send.send(Some(l));
             }
@@ -254,4 +277,56 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     }
     */
     //println!("current time before exiting closures {:?}",Utc::now());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_seq;
+    use seq_io::BaseRecord;
+
+    // Two records: the first spans three lines (last one shorter, mixed case) and
+    // contains a description, the second uses CRLF line endings.
+    const MULTILINE_FASTA: &[u8] = b">seq1 some description\nacgtACGT\ntttt\nAa\n>seq2\r\nGGGG\r\ncccc\r\n";
+
+    // Same parsing path as `query_process_read_fasta_mer` / `ref_process_read_fasta_mer`.
+    fn read_fasta(bytes: &[u8]) -> Vec<(String, Vec<u8>)> {
+        let mut reader = seq_io::fasta::Reader::new(bytes);
+        let mut records = Vec::new();
+        while let Some(record) = reader.next() {
+            let record = record.expect("malformed FASTA");
+            let full_seq = record.full_seq();
+            let seq = normalize_seq(&full_seq);
+            records.push((record.id().unwrap().to_string(), seq.into_owned()));
+        }
+        records
+    }
+
+    #[test]
+    fn multiline_fasta_sequences_are_joined() {
+        let records = read_fasta(MULTILINE_FASTA);
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].0, "seq1");
+        assert_eq!(records[0].1, b"ACGTACGTTTTTAA");
+        assert_eq!(records[1].0, "seq2");
+        assert_eq!(records[1].1, b"GGGGCCCC");
+    }
+
+    #[test]
+    fn raw_seq_still_contains_line_breaks_for_multiline_records() {
+        // Documents why `full_seq()` + normalization is needed: `seq()` is not joined.
+        let mut reader = seq_io::fasta::Reader::new(MULTILINE_FASTA);
+        let record = reader.next().unwrap().unwrap();
+        assert_eq!(record.seq(), b"acgtACGT\ntttt\nAa");
+        assert_eq!(record.full_seq().as_ref(), b"acgtACGTttttAa");
+    }
+
+    #[test]
+    fn normalize_seq_strips_line_breaks_and_uppercases() {
+        assert_eq!(normalize_seq(b"acgtACGT\ntttt\nAa").as_ref(), b"ACGTACGTTTTTAA");
+        assert_eq!(normalize_seq(b"acgt\r\nACGT\r\n").as_ref(), b"ACGTACGT");
+        assert_eq!(normalize_seq(b"ACGT").as_ref(), b"ACGT");
+        assert_eq!(normalize_seq(b"").as_ref(), b"");
+        // Already clean input is borrowed, not copied.
+        assert!(matches!(normalize_seq(b"ACGT"), std::borrow::Cow::Borrowed(_)));
+    }
 }

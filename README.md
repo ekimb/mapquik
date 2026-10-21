@@ -28,7 +28,7 @@ cargo build --release
 
 ## Input
 
-`mapquik` takes a single FASTA/FASTQ input (`gzip`-compressed or not) as input. Multi-line sequences are not supported. 
+`mapquik` takes a single FASTA/FASTQ input (`gzip`-compressed or not) as input. Both single-line and multi-line (wrapped) FASTA sequences are supported, for the reads as well as the reference.
 
 ## Output
 
