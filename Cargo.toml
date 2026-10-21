@@ -1,6 +1,6 @@
 [package]
 name = "mapquik"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["ekimb, rayan"]
 edition = "2021"
 default-run = "mapquik"
@@ -27,11 +27,13 @@ dashmap = "5.4.0"
 thread-id = "3.3.0"
 #rust-wfa2 = { git = "https://github.com/rchikhi/rust-wfa2/" }
 #libwfa = "0.1"
-rust-seq2kminmers = { git = "https://github.com/rchikhi/rust-seq2kminmers" }
+rust-seq2kminmers = { git = "https://github.com/MrTomRod/rust-seq2kminmers" }
 #rust-seq2kminmers = { path = "/pasteur/appa/homes/rchikhi/tools/rust-seq2kminmers" }
 rust-parallelfastx = { git = "https://github.com/rchikhi/rust-parallelfastx"  }
 fxhash = "0.2.1"
 chrono = "0.4.22"
+serde = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
 [target.'cfg(not(target_env = "msvc"))'.dependencies]
 tikv-jemallocator = "0.5"
 proc-macro2 = "1.0.60"

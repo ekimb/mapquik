@@ -2,6 +2,7 @@
 // Contains the "Match", "Offset", and "AlignCand" types, along with driver functions for obtaining reference and query k-min-mers, Matches, Chains, and final coordinates.
 
 use crate::{r#match::Match, Index, ReadOnlyIndex, Params, Stats, PseudoChainCoordsTuple, chain::Chain};
+use crate::report::PafRecord;
 use std::collections::HashMap;
 use dashmap::DashMap;
 use rust_seq2kminmers::{KminmersIterator, FH, HashMode, Kminmer};
@@ -74,7 +75,7 @@ pub fn chain_matches(query_id: &str, query_it_raw: &mut Option<KminmersIterator>
 
 
 // Extract raw Vecs of Matches, construct a Chain, and obtain a final Match (and populate alignment DashMaps with intervals if necessary).
-pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params) /* aln_coords: &DashMap<String, Vec<AlignCand>>) */-> Option<String> {
+pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<usize, (String, usize)>, mers_index: &ReadOnlyIndex, params: &Params) /* aln_coords: &DashMap<String, Vec<AlignCand>>) */-> Option<PafRecord> {
     let mut kminmers = extract(q_id, q_str, params);
     let matches_per_ref = chain_matches(q_id, &mut kminmers, mers_index);
     let mut all_pseudocoords = Vec::<PseudoChainCoordsTuple>::new();    
@@ -101,7 +102,7 @@ pub fn find_matches(q_id: &str, q_len: usize, q_str: &[u8], ref_map: &DashMap<us
         }*/
 }
 
-pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &[PseudoChainCoordsTuple], coords_count: usize) -> Option<String> {
+pub fn determine_best_match(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, all_pseudocoords: &[PseudoChainCoordsTuple], coords_count: usize) -> Option<PafRecord> {
     let (max_i, _, max_count, next_max_count) = find_largest_two_chains(all_pseudocoords, coords_count);
     if max_count == next_max_count {return None;}
     else {return Some(find_coords(q_id, q_len, ref_map, &all_pseudocoords[max_i]));}
@@ -128,7 +129,7 @@ pub fn find_largest_two_chains(all_pseudocoords: &[PseudoChainCoordsTuple], coor
     (max, second_max, max_count, second_max_count)
 }
 
-pub fn find_coords(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, t: &PseudoChainCoordsTuple) -> String {
+pub fn find_coords(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, usize)>, t: &PseudoChainCoordsTuple) -> PafRecord {
     let (r_idx, coords) = *t;
     let rtup = ref_map.get(&r_idx).unwrap();
     let r_id = &rtup.0;
@@ -177,7 +178,21 @@ pub fn find_coords(q_id: &str, q_len: usize, ref_map: &DashMap<usize, (String, u
     }
     let final_q_start = q_start - exc_s;
     let final_q_end = q_end + exc_e;
-    let rc_s : &str = match rc {true => "-", false => "+"};
-    let paf_line = format!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", q_id, q_len, final_q_start, final_q_end, rc_s, r_id, r_len, final_r_start, final_r_end, score, r_len, mapq);
-    paf_line
+    // `final_q_end` / `final_r_end` are inclusive (they come from the chain
+    // coords), PAF wants half-open ends, hence the `+ 1`. The `.min()` calls
+    // are a safety net: a full-length read must end exactly at the length.
+    PafRecord {
+        query_name: q_id.to_string(),
+        query_len: q_len as u64,
+        query_start: final_q_start as u64,
+        query_end: (final_q_end + 1).min(q_len) as u64,
+        strand: if rc { '-' } else { '+' },
+        target_name: r_id.clone(),
+        target_len: r_len as u64,
+        target_start: final_r_start as u64,
+        target_end: (final_r_end + 1).min(r_len) as u64,
+        score: score as u64,
+        block_len: r_len as u64,
+        mapq: mapq as u64,
+    }
 }

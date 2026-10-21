@@ -1,4 +1,4 @@
-// mapquik v0.1.0
+// mapquik v0.2.0
 // Copyright 2020-2021 Baris Ekim, Rayan Chikhi.
 // Licensed under the MIT license (http://opensource.org/licenses/MIT).
 // This file may not be copied, modified, or distributed except according to those terms.
@@ -6,7 +6,7 @@
 #![allow(unused_variables)]
 #![allow(non_upper_case_globals)]
 //#![allow(warnings)]
-#![feature(iter_advance_by)]
+
 #[cfg(not(target_env = "msvc"))]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
@@ -15,7 +15,8 @@ use crate::stats::Stats;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::mem::{MaybeUninit};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::time::{Instant};
 use flate2::read::GzDecoder;
 use lzzzz::lz4f::{BufReadDecompressor};
@@ -26,6 +27,7 @@ mod closures;
 mod index;
 mod r#match;
 mod mers;
+mod report;
 mod stats;
 
 pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
@@ -44,6 +46,74 @@ pub struct Params {
     g: usize, // maximum gap difference
     b: usize, // buffer increase
     q: usize, // queue length
+    low_memory: bool, // low-memory reference FASTA parsing
+    preset: &'static str, // parameter preset name ("hifi" or "ont"), for the report
+}
+
+/// Named parameter preset: k-min-mer length, minimizer length and density.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Preset {
+    /// PacBio HiFi (the defaults): k=5, l=31, d=0.01.
+    Hifi,
+    /// ONT R10.4 reads basecalled with dorado sup, --min-qscore 10: k=2, l=21, d=0.03.
+    Ont,
+}
+
+impl Preset {
+    /// Preset name as written in the JSON report.
+    fn name(self) -> &'static str {
+        match self {
+            Preset::Hifi => "hifi",
+            Preset::Ont => "ont",
+        }
+    }
+
+    /// Label used in the "Using ... k value" warning messages.
+    fn warning_label(self) -> &'static str {
+        match self {
+            Preset::Hifi => "default",
+            Preset::Ont => "ont preset",
+        }
+    }
+
+    /// (k, l, density) defaults of this preset.
+    fn defaults(self) -> (usize, usize, FH) {
+        match self {
+            Preset::Hifi => (5, 31, 0.01),
+            Preset::Ont => (2, 21, 0.03),
+        }
+    }
+}
+
+impl FromStr for Preset {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "hifi" => Ok(Preset::Hifi),
+            "ont" => Ok(Preset::Ont),
+            _ => Err(format!(
+                "unknown preset '{}' (expected one of: hifi, ont)",
+                s
+            )),
+        }
+    }
+}
+
+/// Effective (k, l, density): explicit command line values override the
+/// preset, the preset overrides nothing else.
+fn resolve_params(
+    preset: Preset,
+    k: Option<usize>,
+    l: Option<usize>,
+    density: Option<FH>,
+) -> (usize, usize, FH) {
+    let (default_k, default_l, default_density) = preset.defaults();
+    (
+        k.unwrap_or(default_k),
+        l.unwrap_or(default_l),
+        density.unwrap_or(default_density),
+    )
 }
 
 /// Try to get memory usage (resident set size) in bytes using the `getrusage()` function from libc.
@@ -57,7 +127,7 @@ fn get_memory_rusage() -> usize {
     usage.ru_maxrss as usize * 1024
 }
 
-fn get_reader(path: &PathBuf) -> (Box<dyn BufRead + Send>, bool) {
+fn get_reader(path: &Path) -> (Box<dyn BufRead + Send>, bool) {
     let mut filetype = "unzip";
     let filename_str = path.to_str().unwrap();
     let file = match File::open(path) {
@@ -113,6 +183,12 @@ struct Opt {
     /// minimizers from a read.
     #[structopt(short, long)]
     density: Option<FH>,
+    /// Parameter preset. `hifi` (default): k=5, l=31, d=0.01, for PacBio HiFi.
+    /// `ont`: k=2, l=21, d=0.03, for ONT R10.4 reads basecalled with dorado sup
+    /// (evaluated on reads filtered with --min-qscore 10; see experiments/r10).
+    /// Explicit -k/-l/-d override the preset.
+    #[structopt(long, default_value = "hifi")]
+    preset: Preset,
     /// Minimum chain length
     ///
     /// Only outputs chains of length >= c.
@@ -162,6 +238,13 @@ struct Opt {
     /// queue length
     #[structopt(short, long)]
     q: Option<usize>,
+    /// Write a JSON coverage report to this path
+    ///
+    /// Reports read/alignment metrics and per-contig coverage and depth,
+    /// computed directly from the mapping results. No JSON is written if
+    /// this option is omitted.
+    #[structopt(parse(from_os_str), long)]
+    json: Option<PathBuf>,
 
 }
 
@@ -171,8 +254,6 @@ fn main() {
     let mut filename = PathBuf::new();
     let mut ref_filename = PathBuf::new();
     let mut output_prefix;
-    let mut k : usize = 5;
-    let mut l : usize = 31;
     let mut c = 4;
     let mut s = 11;
     let mut g = 2000;
@@ -180,7 +261,6 @@ fn main() {
     let mut q = 200;
     let low_memory = opt.low_memory;
     let a = false;
-    let mut density : FH = 0.01;
     let reference : bool = false;
     let mut use_hpc : bool = true; 
     let mut use_simd : bool = true; 
@@ -204,11 +284,14 @@ fn main() {
         println!("Reference file: {}", ref_filename_str);
         println!("Format: FASTA");
     }
-    if opt.k.is_some() {k = opt.k.unwrap()} else {println!("Warning: Using default k value ({}).", k);} 
-    if opt.l.is_some() {l = opt.l.unwrap()} else {println!("Warning: Using default l value ({}).", l);}
+    let preset = opt.preset;
+    let preset_label = preset.warning_label();
+    let (k, l, density) = resolve_params(preset, opt.k, opt.l, opt.density);
+    if opt.k.is_none() {println!("Warning: Using {} k value ({}).", preset_label, k);} 
+    if opt.l.is_none() {println!("Warning: Using {} l value ({}).", preset_label, l);}
     if opt.b.is_some() {b = opt.b.unwrap()} else {println!("Warning: Using default buffer size ({}X).", b);}
     if opt.q.is_some() {q = opt.q.unwrap()} else {println!("Warning: Using default queue length ({}).", q);}
-    if opt.density.is_some() {density = opt.density.unwrap()} else {println!("Warning: Using default density value ({}%).", density * 100.0);}
+    if opt.density.is_none() {println!("Warning: Using {} density value ({}%).", preset_label, density * 100.0);}
     if opt.threads.is_some() {threads = opt.threads.unwrap();} else {println!("Warning: Using default number of threads (8).");}
     if opt.chain.is_some() {c = opt.chain.unwrap()} else {println!("Warning: Using default minimum chain length ({}).", c);}
     if opt.seed.is_some() {s = opt.seed.unwrap()} else {println!("Warning: Using default minimum number of matching seeds ({}).", s);}
@@ -252,6 +335,8 @@ fn main() {
         g,
         b,
         q,
+        low_memory,
+        preset: preset.name(),
     };
     // init some useful objects
     // get file size for progress bar
@@ -264,11 +349,50 @@ fn main() {
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
     Stats::init(threads, output_prefix.to_str().unwrap());
-    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);
+    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix, opt.json.as_deref());
     //println!("current time after exiting closures {:?}",Utc::now());
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);
     println!("Maximum RSS: {:?}GB", (get_memory_rusage() as f32) / 1024.0 / 1024.0 / 1024.0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preset_from_str_is_case_insensitive() {
+        assert_eq!("hifi".parse::<Preset>().unwrap(), Preset::Hifi);
+        assert_eq!("HIFI".parse::<Preset>().unwrap(), Preset::Hifi);
+        assert_eq!("ont".parse::<Preset>().unwrap(), Preset::Ont);
+        assert_eq!("OnT".parse::<Preset>().unwrap(), Preset::Ont);
+        let err = "foo".parse::<Preset>().unwrap_err();
+        assert!(err.contains("unknown preset 'foo'"), "{}", err);
+        assert!(err.contains("hifi, ont"), "{}", err);
+    }
+
+    #[test]
+    fn preset_defaults_match_documented_values() {
+        assert_eq!(Preset::Hifi.defaults(), (5, 31, 0.01));
+        assert_eq!(Preset::Ont.defaults(), (2, 21, 0.03));
+        assert_eq!(Preset::Hifi.name(), "hifi");
+        assert_eq!(Preset::Ont.name(), "ont");
+    }
+
+    #[test]
+    fn explicit_values_override_preset() {
+        assert_eq!(resolve_params(Preset::Hifi, None, None, None), (5, 31, 0.01));
+        assert_eq!(resolve_params(Preset::Ont, None, None, None), (2, 21, 0.03));
+        // Partial override: the other preset values stay.
+        assert_eq!(resolve_params(Preset::Ont, Some(3), None, None), (3, 21, 0.03));
+        assert_eq!(resolve_params(Preset::Ont, None, Some(19), None), (2, 19, 0.03));
+        assert_eq!(resolve_params(Preset::Ont, None, None, Some(0.05)), (2, 21, 0.05));
+        // Full override.
+        assert_eq!(
+            resolve_params(Preset::Hifi, Some(2), Some(21), Some(0.03)),
+            (2, 21, 0.03)
+        );
+    }
 }
 
 

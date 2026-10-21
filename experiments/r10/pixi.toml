@@ -1,0 +1,17 @@
+[workspace]
+name = "mapquik-r10"
+channels = ["conda-forge", "bioconda"]
+platforms = ["linux-64"]
+
+[dependencies]
+minimap2 = "*"
+samtools = "*"
+python = ">=3.12"
+pandas = "*"
+matplotlib = "*"
+
+[tasks]
+# all 9 strains (phase 2): minimap2 truth + mapquik default and best_ont on pb and ont, then tables
+all = "python run_all.py && python aggregate.py && python report.py > results/tables.md && python plot.py"
+report = "python aggregate.py && python report.py > results/tables.md && python plot.py"
+sweep = "python sweep.py"

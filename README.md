@@ -9,8 +9,9 @@
 The underlying seed constructs ($k$-mers) in state-of-the-art long-read mappers are tailored to noisy reads, and small seed sizes induce longer computation times due to multiple potential mapping locations. Recent advances in short-read alignment methods have demonstrated that [98\% of many organisms' genomes are non-repetitive and can be uniquely aligned to with longer seeds](https://peerj.com/articles/9338/). Therefore, we explore the use of longer, non-exact seeds ($k$-min-mers) in accurate long reads. See [our manuscript](https://genome.cshlp.org/content/early/2023/06/29/gr.277679.123) for details.
 
 ## Limitations
-The mapping performance of `mapquik` degrades markedly when identity between reads and the reference is lower than $97$\%, and less than $1$\% of the reads are mapped at $Q60$ for identities below $93$\%. Therefore, `mapquik` is not suitable for mapping PacBio CLR reads, and potentially also Oxford Nanopore reads until base-calling consistently reaches identity levels above $98$\%. 
-
+The mapping performance of `mapquik` degrades markedly when identity between reads and the reference is lower than $97$\%, and less than $1$\% of the reads are mapped at $Q60$ for identities below $93$\%. Therefore, `mapquik` is not suitable for mapping PacBio CLR reads. Modern Oxford Nanopore R10.4 reads basecalled with dorado `sup` (and `--min-qscore 10`) have a median identity of about $99.7$\% and map well with `--preset ont`: on 9 bacterial strains, sensitivity was $99.99$\% ($99.7$\% at MAPQ 60) versus minimap2, compared with $98.7$\% ($88.8$\% at MAPQ 60) at default settings; see [experiments/r10](experiments/r10/README.md). Caveats:
+* That evaluation covered only small bacterial genomes. On large or repetitive genomes the shorter, less specific seeds of the `ont` preset (a $k$-min-mer spans about $70$ bp of sequence, versus about $500$ bp of homopolymer-compressed sequence at the default) may cause more wrong mappings and use more memory; this has not been tested.
+* Read identity still matters: expect a lower mapped fraction for lower-accuracy basecalling models or older chemistries.
 
 ## Installation
 
@@ -19,23 +20,43 @@ Pre-requisites: [A working Rust environment](https://rustup.rs/).
 Clone the repository, and run 
 
 ```
-rustup install nightly
-cargo +nightly build --release
+cargo build --release
 ```
-
-The nightly version of `cargo` is required because `mapquik` uses experimental language features (such as SIMD and intrinsics).
 
 ## Quick start
 
 `target/release/mapquik <reads.fq> --reference <reference.fa>`
 
+For ONT R10.4 reads (dorado `sup` basecalling, `--min-qscore 10`), use the ONT preset:
+
+`target/release/mapquik <reads.fq> --reference <reference.fa> --preset ont`
+
 ## Input
 
-`mapquik` takes a single FASTA/FASTQ input (`gzip`-compressed or not) as input. Multi-line sequences are not supported. 
+`mapquik` takes a single FASTA/FASTQ input (`gzip`-compressed or not) as input. Both single-line and multi-line (wrapped) FASTA sequences are supported, for the reads as well as the reference.
 
 ## Output
 
 The output of `mapquik` is a regular PAF file.
+
+PAF coordinates follow the [PAF specification](https://github.com/lh3/miniasm/blob/master/PAF.md): query and target start/end columns are 0-based and **half-open** (`[start, end)`), so a full-length read of length `L` is reported as `0 L`, and no end coordinate exceeds the corresponding sequence length. Columns 10 and 11 are mapquik-specific (number of matching seeds and reference length) and are not the standard PAF residue-match / block-length columns.
+
+### Coverage report (`--json`)
+
+Passing `--json <path>` additionally writes a JSON coverage report for the run, computed from the mapping results:
+
+```
+target/release/mapquik reads.fa --reference ref.fa --json report.json
+```
+
+The report contains:
+
+* `analysis_type` / `schema_version`: report type and version (`2`).
+* `mapquik`: provenance — mapquik `version`, the `reads` and `reference` paths as given, and the `parameters` used (`k`, `l`, `density`, `chain`, `seed`, `gap_diff`, `b`, `q`, `threads`, `low_memory`, `hpc`, `simd`, `parallelfastx`, `debug`).
+* `input_metrics`: `input_reads_total` (every input read, mapped or not), `reads_mapped_count`, `reads_unmapped_count`, `reads_unmapped_percent`, `reads_mapped_percent`, `total_assembly_length_bp`, `input_bases_total`, `reads_mapped_bases`, `total_aligned_bases`, `average_depth`, `covered_bases` and `breadth_fraction`.
+* `contig_coverage`: one entry per reference contig, in reference FASTA order, with `length_bp`, `total_aligned_bases` (sum of the aligned reference spans `target_end - target_start` over all PAF lines), `average_depth`, `covered_bases` (union of the aligned reference intervals), `breadth_fraction`, `mapped_reads` and `mapped_reads_mapq60`.
+
+Percentages and depths are rounded to 2 decimals, breadth fractions to 4; ratios over an empty assembly or read set are `0.0`. mapquik emits at most one PAF line per read, so `reads_mapped_count` equals the number of PAF lines. The report is only written when `--json` is given. Note that requesting the report makes mapquik read the reference a second time (sequentially, before indexing) in order to keep contigs in reference FASTA order.
 
 ## Running an example
 
@@ -60,6 +81,8 @@ for a one-line summary of each flag, or run
 `target/release/mapquik --help`
 
 for a lengthy explanation of each flag.
+
+`--preset` selects the seeding parameters: `hifi` (default; `k=5`, `l=31`, `d=0.01`) for PacBio HiFi, or `ont` (`k=2`, `l=21`, `d=0.03`) for ONT R10.4 reads basecalled with dorado `sup`; explicit `-k`/`-l`/`-d` override the preset.
 
 ## Data Availability
 
