@@ -15,7 +15,7 @@ use crate::stats::Stats;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::mem::{MaybeUninit};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Instant};
 use flate2::read::GzDecoder;
 use lzzzz::lz4f::{BufReadDecompressor};
@@ -26,6 +26,7 @@ mod closures;
 mod index;
 mod r#match;
 mod mers;
+mod report;
 mod stats;
 
 pub type PseudoChainCoords = (bool, usize, usize, usize, usize, usize, usize);
@@ -44,6 +45,7 @@ pub struct Params {
     g: usize, // maximum gap difference
     b: usize, // buffer increase
     q: usize, // queue length
+    low_memory: bool, // low-memory reference FASTA parsing
 }
 
 /// Try to get memory usage (resident set size) in bytes using the `getrusage()` function from libc.
@@ -57,7 +59,7 @@ fn get_memory_rusage() -> usize {
     usage.ru_maxrss as usize * 1024
 }
 
-fn get_reader(path: &PathBuf) -> (Box<dyn BufRead + Send>, bool) {
+fn get_reader(path: &Path) -> (Box<dyn BufRead + Send>, bool) {
     let mut filetype = "unzip";
     let filename_str = path.to_str().unwrap();
     let file = match File::open(path) {
@@ -162,6 +164,14 @@ struct Opt {
     /// queue length
     #[structopt(short, long)]
     q: Option<usize>,
+    /// Write a JSON coverage report to this path
+    ///
+    /// Reports read/alignment metrics and per-contig coverage and depth,
+    /// computed directly from the mapping results (same schema as
+    /// mapquik_wrapper.py, plus additional fields). No JSON is written if
+    /// this option is omitted.
+    #[structopt(parse(from_os_str), long)]
+    json: Option<PathBuf>,
 
 }
 
@@ -252,6 +262,7 @@ fn main() {
         g,
         b,
         q,
+        low_memory,
     };
     // init some useful objects
     // get file size for progress bar
@@ -264,7 +275,7 @@ fn main() {
                              // also: controls how many reads objects are buffered during fasta/fastq
                              // parsing
     Stats::init(threads, output_prefix.to_str().unwrap());
-    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix);
+    closures::run_mers(&filename, &ref_filename, &params, ref_threads, threads, ref_queue_len, queue_len, reads_are_fasta, ref_is_fasta, &output_prefix, opt.json.as_deref());
     //println!("current time after exiting closures {:?}",Utc::now());
     let duration = start.elapsed();
     println!("Total execution time: {:?}", duration);

@@ -12,6 +12,7 @@ use super::mers;
 use std::path::{Path, PathBuf};
 use super::Params;
 use crate::get_reader;
+use crate::report::{self, CoverageAccumulator, PafRecord};
 use std::time::Instant;
 use crate::index::{Index, ReadOnlyIndex};
 //use crate::align::{get_slices, align_slices, AlignStats};
@@ -37,7 +38,7 @@ pub fn normalize_seq(seq: &[u8]) -> Cow<[u8]> {
 }
 
 // Main function for all FASTA parsing + mapping / alignment functions.
-pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &Path) {
+pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref_threads: usize, threads: usize, ref_queue_len: usize, queue_len: usize, fasta_reads: bool, ref_fasta_reads: bool, output_prefix: &Path, json_out: Option<&Path>) {
 
     let mers_index = Index::new(); // Index of reference k-min-mer entries
     //let mut aln_coords : Arc<DashMap<String, Vec<AlignCand>>> =  Arc::new(DashMap::new()); // Index of AlignCand objects (see mers.rs for a definition) per reference
@@ -51,6 +52,18 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     let mut paf_file = match File::create(&paf_filename) {
         Err(why) => panic!("Couldn't create {}: {}", paf_filename, why.description()),
         Ok(paf_file) => BufWriter::new(paf_file),
+    };
+
+    // Coverage report accumulation (only when --json was given). Contigs are
+    // read once more, sequentially, to know their order in the reference file:
+    // reference ids are handed out from an atomic counter in worker threads.
+    let mut report_accumulator: Option<CoverageAccumulator> = match json_out {
+        Some(_) => {
+            let contigs = report::contigs_in_file_order(ref_filename, ref_fasta_reads)
+                .unwrap_or_else(|e| panic!("Error reading reference {} for the JSON report: {}", ref_filename.to_str().unwrap(), e));
+            Some(CoverageAccumulator::new(contigs))
+        }
+        None => None,
     };
 
     // Unmapped read file generation
@@ -116,28 +129,34 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
     
     // Closures for mapping queries to references
 
-    let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, Option<String>) {
+    let query_process_read_aux_mer = |seq_str: &[u8], seq_id: &str| -> (String, usize, Option<PafRecord>) {
         //if params.a {aln_coords_q.insert(seq_id.to_string(), vec![]);}
         let match_opt = mers::find_matches(seq_id, seq_str.len(), seq_str, &ref_map, &mers_index, params); //&aln_coords);
-        (seq_id.to_string(), match_opt)
+        (seq_id.to_string(), seq_str.len(), match_opt)
     };
-    let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, Option<String>)| {
+    let query_process_read_fasta_mer = |record: seq_io::fasta::RefRecord, found: &mut (String, usize, Option<PafRecord>)| {
         let full_seq = record.full_seq(); // seq() is not joined for multi-line FASTA, full_seq() is
         let seq_str = normalize_seq(&full_seq);
         let seq_id = record.id().unwrap();
         *found = query_process_read_aux_mer(seq_str.as_ref(), seq_id);
 
     };
-    let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, Option<String>)| {
+    let query_process_read_fastq_mer = |record: seq_io::fastq::RefRecord, found: &mut (String, usize, Option<PafRecord>)| {
         let seq_str = record.seq().to_ascii_uppercase(); 
         let seq_id = record.id().unwrap();
         *found = query_process_read_aux_mer(&seq_str, seq_id);
     };
-    // main thread for writing to PAF
-    let mut main_thread_mer = |found: &mut (String, Option<String>)| { // runs in main thread
-        let (_, match_opt) = found;
-        if let Some(l) = match_opt {
-            write!(paf_file, "{}\n", l).expect("Error writing line.");
+    // main thread for writing to PAF (and collecting the JSON report data)
+    let mut main_thread_mer = |found: &mut (String, usize, Option<PafRecord>)| { // runs in main thread
+        let (_, q_len, match_opt) = found;
+        if let Some(acc) = report_accumulator.as_mut() {
+            acc.add_input_read(*q_len as u64);
+        }
+        if let Some(record) = match_opt {
+            if let Some(acc) = report_accumulator.as_mut() {
+                acc.add_paf_record(record);
+            }
+            writeln!(paf_file, "{}", record.to_line()).expect("Error writing line.");
         }
         None::<()>
     };
@@ -210,28 +229,73 @@ pub fn run_mers(filename: &PathBuf, ref_filename: &PathBuf, params: &Params, ref
         // the only downside is that it will display a large RSS footprint as the reads will be
         // loaded in memory (though, that memory isn't needed by hifimap, it will just use as much as possible)
         println!("Warning: using experimental rust-parallelfastx (exciting!)");
-        let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel(1000);
+        let (paf_mpsc_send, paf_mpsc_recv) = mpsc::sync_channel::<Option<PafRecord>>(1000);
+        let input_reads = AtomicUsize::new(0);
+        let input_bases = AtomicUsize::new(0);
         let task = |seq_str: &[u8], seq_id: &str|  {
             // rust-parallelfastx passes the raw record bytes, which still contain line
             // breaks for multi-line records, so normalise before mapping.
             let seq_str = normalize_seq(seq_str);
-            let (_osef, match_opt) = query_process_read_aux_mer(seq_str.as_ref(), seq_id);
-            if let Some(l) = match_opt {
-                paf_mpsc_send.send(Some(l));
+            input_reads.fetch_add(1, Ordering::Relaxed);
+            input_bases.fetch_add(seq_str.len(), Ordering::Relaxed);
+            let (_osef, _q_len, match_opt) = query_process_read_aux_mer(seq_str.as_ref(), seq_id);
+            if let Some(record) = match_opt {
+                let _ = paf_mpsc_send.send(Some(record));
             }
         };
+        let report_accumulator_for_writer = report_accumulator.take();
         let writer = std::thread::spawn(move || {
-            while let Some(paf_line) = paf_mpsc_recv.recv().unwrap() {
-                write!(paf_file, "{}\n", paf_line).expect("Error writing line.");
+            let mut accumulator = report_accumulator_for_writer;
+            while let Some(record) = paf_mpsc_recv.recv().unwrap() {
+                if let Some(acc) = accumulator.as_mut() {
+                    acc.add_paf_record(&record);
+                }
+                writeln!(paf_file, "{}", record.to_line()).expect("Error writing line.");
             }
+            accumulator
         });
         parallel_fastx(&filename.to_string_lossy(), threads, task);
-        paf_mpsc_send.send(None); // signal we're done
-        writer.join().unwrap();
+        let _ = paf_mpsc_send.send(None); // signal we're done
+        report_accumulator = writer.join().unwrap();
+        if let Some(acc) = report_accumulator.as_mut() {
+            acc.set_input_totals(
+                input_reads.load(Ordering::Relaxed) as u64,
+                input_bases.load(Ordering::Relaxed) as u64,
+            );
+        }
     }
 
     let query_duration = query_start.elapsed();
     println!("Mapped query sequences in {:?}.", query_duration);
+
+    // Write the JSON coverage report (only if --json was given).
+    if let (Some(json_path), Some(accumulator)) = (json_out, report_accumulator.as_ref()) {
+        let meta = report::ReportMeta {
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            reads: filename.display().to_string(),
+            reference: ref_filename.display().to_string(),
+            parameters: report::Parameters {
+                k: params.k,
+                l: params.l,
+                density: params.density,
+                chain: params.c,
+                seed: params.s,
+                gap_diff: params.g,
+                b: params.b,
+                q: params.q,
+                threads,
+                low_memory: params.low_memory,
+                hpc: params.use_hpc,
+                simd: params.use_simd,
+                parallelfastx: params.use_pfx,
+                debug: params.debug,
+            },
+        };
+        if let Err(e) = report::write_report(json_path, accumulator, &meta) {
+            panic!("Error writing JSON report to {}: {}", json_path.display(), e);
+        }
+        println!("Wrote JSON coverage report to {}", json_path.display());
+    }
 
 
 

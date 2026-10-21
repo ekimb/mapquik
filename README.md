@@ -34,6 +34,25 @@ cargo build --release
 
 The output of `mapquik` is a regular PAF file.
 
+PAF coordinates follow the [PAF specification](https://github.com/lh3/miniasm/blob/master/PAF.md): query and target start/end columns are 0-based and **half-open** (`[start, end)`), so a full-length read of length `L` is reported as `0 L`, and no end coordinate exceeds the corresponding sequence length. Columns 10 and 11 are mapquik-specific (number of matching seeds and reference length) and are not the standard PAF residue-match / block-length columns.
+
+### Coverage report (`--json`)
+
+Passing `--json <path>` additionally writes a JSON coverage report for the run, computed from the mapping results:
+
+```
+target/release/mapquik reads.fa --reference ref.fa --json report.json
+```
+
+The report contains:
+
+* `analysis_type` / `schema_version`: report type and version (`2`).
+* `mapquik`: provenance — mapquik `version`, the `reads` and `reference` paths as given, and the `parameters` used (`k`, `l`, `density`, `chain`, `seed`, `gap_diff`, `b`, `q`, `threads`, `low_memory`, `hpc`, `simd`, `parallelfastx`, `debug`).
+* `input_metrics`: `input_reads_total` (every input read, mapped or not), `reads_mapped_count`, `reads_unmapped_count`, `reads_unmapped_percent`, `reads_mapped_percent`, `total_assembly_length_bp`, `input_bases_total`, `reads_mapped_bases`, `total_aligned_bases`, `average_depth`, `covered_bases` and `breadth_fraction`.
+* `contig_coverage`: one entry per reference contig, in reference FASTA order, with `length_bp`, `total_aligned_bases` (sum of the aligned reference spans `target_end - target_start` over all PAF lines), `average_depth`, `covered_bases` (union of the aligned reference intervals), `breadth_fraction`, `mapped_reads` and `mapped_reads_mapq60`.
+
+Percentages and depths are rounded to 2 decimals, breadth fractions to 4; ratios over an empty assembly or read set are `0.0`. mapquik emits at most one PAF line per read, so `reads_mapped_count` equals the number of PAF lines. The report is only written when `--json` is given. Note that requesting the report makes mapquik read the reference a second time (sequentially, before indexing) in order to keep contigs in reference FASTA order.
+
 ## Running an example
 
 An example reference genome, and a script to simulate reads using `pbsim` are provided in the `example/` folder. To run `mapquik` on a small set of 100 reads, type:
